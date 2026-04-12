@@ -1,0 +1,491 @@
+"use client"
+
+import { useState, useEffect } from "react"
+import { motion } from "framer-motion"
+import { Button } from "@/components/ui/button"
+import { Zap, Crown, CheckCircle2, ArrowLeft, CreditCard, Clock, Download, RefreshCw, AlertCircle, Loader2, Infinity as InfinityIcon, Package, Gift } from "lucide-react"
+import Link from "next/link"
+import { PricingSection } from "@/components/PricingSection"
+import { useToast } from "@/components/ui/use-toast"
+import { usePurchasedAssets, type PurchasedAsset, type AssetCategory } from "@/contexts/PurchasedAssetsContext"
+import { IconRenderer, type IconName } from "@/components/IconRenderer"
+
+interface Order {
+  id: string
+  createdAt: string
+  plan: string
+  amount: number
+  status: 'PAID' | 'PENDING' | 'FAILED' | 'REFUNDED'
+  orderType: string
+}
+
+interface UserAssets {
+  tokenBalance: number
+  totalTokens: number
+  subscriptionTier: string
+  nextRenewalDate?: string
+}
+
+// ─── 特权与永久资产区块 ────────────────────────────────────────
+function PrivilegesAndAssetsSection() {
+  const { assets } = usePurchasedAssets()
+
+  // 过滤出永久资产和高级特权（排除 quota, domain 等消耗型资产）
+  const permanentAssets = assets.filter(asset =>
+    asset.category === 'template' ||
+    asset.category === 'premium' ||
+    asset.category === 'subscription' ||
+    asset.category === 'export'
+  )
+
+  // 空状态
+  if (permanentAssets.length === 0) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="mb-12 p-6 rounded-2xl border border-dashed border-slate-700/50 bg-slate-900/30"
+      >
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500/20 to-orange-500/20 border border-amber-500/30 flex items-center justify-center">
+            <Gift className="w-5 h-5 text-amber-400" />
+          </div>
+          <div>
+            <h3 className="text-lg font-bold text-white">特权与永久资产</h3>
+            <p className="text-xs text-slate-500">Privileges & Permanent Assets</p>
+          </div>
+        </div>
+
+        {/* 空状态提示 */}
+        <div className="flex items-center gap-3 py-4 px-4 rounded-xl bg-slate-800/30 border border-slate-700/30">
+          <div className="w-8 h-8 rounded-lg bg-slate-700/50 flex items-center justify-center flex-shrink-0">
+            <Package className="w-4 h-4 text-slate-500" />
+          </div>
+          <div>
+            <p className="text-sm text-slate-400">暂未解锁永久特权</p>
+            <p className="text-xs text-slate-500 mt-0.5">
+              可前往<Link href="/billing" className="text-blue-400 hover:text-blue-300 underline">商城</Link>获取高级外挂
+            </p>
+          </div>
+        </div>
+      </motion.div>
+    )
+  }
+
+  // 按购买时间倒序
+  const sortedAssets = [...permanentAssets].sort((a, b) =>
+    new Date(b.purchasedAt).getTime() - new Date(a.purchasedAt).getTime()
+  )
+
+  // 类别标签映射
+  const categoryLabels: Record<AssetCategory, { label: string; color: string }> = {
+    template: { label: '行业模板', color: 'bg-purple-500/20 text-purple-400 border-purple-500/30' },
+    premium: { label: '高级特权', color: 'bg-amber-500/20 text-amber-400 border-amber-500/30' },
+    subscription: { label: '订阅套餐', color: 'bg-blue-500/20 text-blue-400 border-blue-500/30' },
+    export: { label: '导出额度', color: 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30' },
+    quota: { label: '配额包', color: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' },
+    domain: { label: '域名包', color: 'bg-blue-500/20 text-blue-400 border-blue-500/30' },
+  }
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="mb-12"
+    >
+      {/* 区块标题 */}
+      <div className="flex items-center gap-3 mb-6">
+        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500 to-orange-400 flex items-center justify-center shadow-lg shadow-amber-500/20">
+          <Gift className="w-5 h-5 text-white" />
+        </div>
+        <div>
+          <h3 className="text-lg font-bold text-white">特权与永久资产</h3>
+          <p className="text-xs text-slate-500">Privileges & Permanent Assets · 共 {permanentAssets.length} 项</p>
+        </div>
+      </div>
+
+      {/* 资产网格 */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {sortedAssets.map(asset => {
+          const catInfo = categoryLabels[asset.category] || categoryLabels.template
+          const purchaseDate = new Date(asset.purchasedAt).toLocaleDateString('zh-CN', {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric'
+          })
+
+          return (
+            <motion.div
+              key={asset.id}
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              whileHover={{ scale: 1.02, y: -2 }}
+              className="relative p-4 rounded-2xl bg-gradient-to-br from-slate-800/80 to-slate-900/80 border border-slate-700/50 hover:border-slate-600/60 transition-all duration-200 overflow-hidden"
+            >
+              {/* 右上角永久有效标签 */}
+              <div className="absolute top-3 right-3 flex items-center gap-1 px-2 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30">
+                <InfinityIcon className="w-3 h-3 text-emerald-400" />
+                <span className="text-[10px] font-semibold text-emerald-400">永久有效</span>
+              </div>
+
+              {/* 资产图标 */}
+              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-500/20 to-pink-500/20 border border-purple-500/30 flex items-center justify-center mb-3">
+                <IconRenderer name={asset.icon as IconName || 'Gift'} size={24} className="text-purple-400" />
+              </div>
+
+              {/* 资产名称 */}
+              <h4 className="text-sm font-bold text-white mb-1 pr-16">{asset.name}</h4>
+
+              {/* 类别标签 */}
+              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold border ${catInfo.color}`}>
+                {catInfo.label}
+              </span>
+
+              {/* 规格信息 */}
+              {asset.credits && (
+                <p className="text-xs text-slate-400 mt-2">
+                  {asset.credits.toLocaleString()} 导出额度
+                </p>
+              )}
+
+              {/* 底部信息 */}
+              <div className="flex items-center justify-between mt-3 pt-3 border-t border-slate-700/30">
+                <span className="text-[10px] text-slate-500">{purchaseDate}</span>
+                <span className="text-xs font-semibold text-white">¥{asset.price}</span>
+              </div>
+
+              {/* 已激活状态 */}
+              <div className="absolute bottom-3 right-3 flex items-center gap-1">
+                <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                <span className="text-[10px] text-emerald-400 font-medium">已激活</span>
+              </div>
+
+              {/* 装饰光晕 */}
+              <div className="absolute -bottom-8 -right-8 w-24 h-24 bg-gradient-to-br from-purple-500/5 to-transparent rounded-full blur-xl" />
+            </motion.div>
+          )
+        })}
+      </div>
+
+      {/* 底部提示 */}
+      <div className="mt-4 flex items-center justify-between text-xs text-slate-500">
+        <span>永久资产购买后立即生效，不可退款</span>
+        <Link href="/billing" className="text-blue-400 hover:text-blue-300 flex items-center gap-1">
+          <span>前往商城</span>
+          <span>→</span>
+        </Link>
+      </div>
+    </motion.div>
+  )
+}
+
+export default function WalletPage() {
+  const { toast } = useToast()
+  const [assets, setAssets] = useState<UserAssets | null>(null)
+  const [orders, setOrders] = useState<Order[]>([])
+  const [ordersLoading, setOrdersLoading] = useState(true)
+
+  useEffect(() => {
+    loadAssets()
+    loadOrders()
+  }, [])
+
+  const loadAssets = async () => {
+    try {
+      const r = await fetch('/api/user/assets')
+      if (r.ok) setAssets(await r.json())
+    } catch { /* ignore */ }
+  }
+
+  const loadOrders = async () => {
+    setOrdersLoading(true)
+    try {
+      const r = await fetch('/api/user/orders')
+      if (r.ok) {
+        const d = await r.json()
+        setOrders(d.orders || [])
+      }
+    } catch { /* ignore */ } finally {
+      setOrdersLoading(false)
+    }
+  }
+
+  const currentBalance = assets?.tokenBalance ?? 0
+  const totalBalance = assets?.totalTokens ?? 0
+  const tierLabel = assets?.subscriptionTier === 'STARTER' ? '入门版' :
+    assets?.subscriptionTier === 'PRO' ? '专业版' :
+    assets?.subscriptionTier === 'MAX' ? '旗舰版' :
+    assets?.subscriptionTier || '未订阅'
+  const usagePercent = totalBalance > 0 ? ((totalBalance - currentBalance) / totalBalance * 100).toFixed(1) : '0.0'
+
+  const handleRefund = async (orderId: string) => {
+    try {
+      const reason = window.prompt('请输入退款原因：')
+      if (!reason) return
+
+      const response = await fetch('/api/user/refund', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId, reason }),
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        toast({
+          title: "✅ 退款申请已提交",
+          description: data.message,
+        })
+      } else {
+        const error = await response.json()
+        toast({
+          title: "申请失败",
+          description: error.error || "请稍后重试",
+          variant: "destructive",
+        })
+      }
+    } catch (error) {
+      toast({
+        title: "申请失败",
+        description: "网络错误，请稍后重试",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleRecharge = async () => {
+    try {
+      const amount = prompt('请输入充值金额（元）：')
+      if (!amount || isNaN(Number(amount)) || Number(amount) <= 0) {
+        toast({
+          title: "输入无效",
+          description: "请输入有效的充值金额",
+          variant: "destructive",
+        })
+        return
+      }
+
+      const response = await fetch('/api/payment/recharge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amount: Number(amount) }),
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        toast({
+          title: "✅ 充值订单已创建",
+          description: data.message,
+        })
+        if (data.paymentUrl) {
+          window.location.href = data.paymentUrl
+        }
+      } else {
+        const error = await response.json()
+        toast({
+          title: "充值失败",
+          description: error.error || "请稍后重试",
+          variant: "destructive",
+        })
+      }
+    } catch (error) {
+      toast({
+        title: "充值失败",
+        description: "网络错误，请稍后重试",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleManageSubscription = () => {
+    toast({
+      title: '订阅管理',
+      description: '如需取消或变更订阅，请联系客服 support@leadpilot.cn',
+    })
+  }
+
+  const handleUpgradePlan = () => {
+    // 平滑滚动到套餐选择区域
+    const pricingSection = document.querySelector('[data-pricing-section]')
+    if (pricingSection) {
+      pricingSection.scrollIntoView({ behavior: 'smooth' })
+    } else {
+      window.location.href = '/billing'
+    }
+  }
+
+  return (
+    <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950">
+      <div className="fixed inset-0 pointer-events-none">
+        <div className="absolute inset-0 bg-[linear-gradient(to_right,#1e293b_1px,transparent_1px),linear-gradient(to_bottom,#1e293b_1px,transparent_1px)] bg-[size:4rem_4rem]" />
+      </div>
+
+      <div className="relative z-10 container mx-auto px-4 py-12 max-w-7xl">
+        <div className="mb-8">
+          <Link href="/dashboard" className="inline-flex items-center gap-2 text-slate-400 hover:text-white transition-colors mb-6">
+            <ArrowLeft className="w-4 h-4" />返回 Dashboard
+          </Link>
+          <h1 className="text-5xl font-bold text-white mb-2">钱包与余额</h1>
+          <p className="text-slate-400 text-lg">管理您的算力余额、套餐订阅和订单历史</p>
+        </div>
+
+        {/* 算力余额与套餐信息 */}
+        <div className="grid md:grid-cols-2 gap-6 mb-12">
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
+            className="bg-gradient-to-br from-slate-900/90 to-slate-800/90 border border-slate-700/50 rounded-3xl p-8">
+            <div className="flex items-start justify-between mb-6">
+              <div>
+                <div className="text-slate-400 text-sm mb-2">当前算力余额</div>
+                <div className="flex items-baseline gap-2">
+                  <span className="text-5xl font-bold text-white">{currentBalance.toLocaleString()}</span>
+                  <span className="text-slate-400 text-lg">tokens</span>
+                </div>
+              </div>
+              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-500 flex items-center justify-center shadow-xl shadow-amber-500/30">
+                <Zap className="w-8 h-8 text-white" />
+              </div>
+            </div>
+            <div className="mb-4">
+              <div className="flex justify-between text-sm mb-2">
+                <span className="text-slate-400">已使用 {usagePercent}%</span>
+                <span className="text-slate-400">{totalBalance.toLocaleString()} tokens 总量</span>
+              </div>
+              <div className="w-full h-3 bg-slate-700 rounded-full overflow-hidden">
+                <motion.div initial={{ width: 0 }} animate={{ width: `${usagePercent}%` }} transition={{ duration: 1 }}
+                  className="h-full bg-gradient-to-r from-amber-500 to-orange-500" />
+              </div>
+            </div>
+            <Button onClick={handleRecharge} className="w-full bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 py-6 text-lg">
+              <CreditCard className="w-5 h-5 mr-2" />立即充值算力
+            </Button>
+          </motion.div>
+
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
+            className="bg-gradient-to-br from-blue-900/50 to-slate-900/90 border-2 border-blue-400/50 rounded-3xl p-8">
+            <div className="flex items-start justify-between mb-6">
+              <div>
+                <div className="text-blue-300 text-sm mb-2">当前套餐</div>
+                <div className="flex items-center gap-2">
+                  <span className="text-4xl font-bold text-white">{tierLabel}</span>
+                  <Crown className="w-6 h-6 text-blue-400" />
+                </div>
+              </div>
+              <div className="px-4 py-2 bg-blue-500/20 border border-blue-400/30 rounded-full">
+                <span className="text-blue-300 text-sm font-semibold">活跃中</span>
+              </div>
+            </div>
+            <div className="space-y-3 mb-6">
+              <div className="flex items-center gap-2 text-slate-300">
+                <CheckCircle2 className="w-4 h-4 text-blue-400" />
+                <span className="text-sm">当前算力：{currentBalance.toLocaleString()} tokens</span>
+              </div>
+              {assets?.nextRenewalDate && (
+                <div className="flex items-center gap-2 text-slate-300">
+                  <Clock className="w-4 h-4 text-blue-400" />
+                  <span className="text-sm">下次续费：{assets.nextRenewalDate}</span>
+                </div>
+              )}
+            </div>
+            <div className="flex gap-3">
+              <Button onClick={handleManageSubscription} variant="outline" className="flex-1 border-blue-400/50 text-blue-300 hover:bg-blue-500/10">管理订阅</Button>
+              <Button onClick={handleUpgradePlan} className="flex-1 bg-gradient-to-r from-purple-600 to-purple-500">升级套餐</Button>
+            </div>
+          </motion.div>
+        </div>
+
+        {/* 特权与永久资产 */}
+        <PrivilegesAndAssetsSection />
+
+        {/* 套餐选择 */}
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="mb-12" data-pricing-section>
+          <h2 className="text-3xl font-bold text-white mb-4">选择套餐</h2>
+          <p className="text-slate-400 mb-8">升级或更改您的订阅计划</p>
+          <PricingSection />
+        </motion.div>
+
+        {/* 订单历史 */}
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }}>
+          <h2 className="text-3xl font-bold text-white mb-4">订单历史</h2>
+          <p className="text-slate-400 mb-6">查看您的所有订单和交易记录</p>
+
+          <div className="bg-slate-900/50 border border-slate-800 rounded-2xl overflow-hidden">
+            <div className="overflow-x-auto">
+              {ordersLoading ? (
+                <div className="py-16 text-center">
+                  <Loader2 className="w-8 h-8 text-blue-400 animate-spin mx-auto mb-3" />
+                  <p className="text-slate-400 text-sm">加载订单中...</p>
+                </div>
+              ) : orders.length === 0 ? (
+                <div className="py-16 text-center text-slate-500">
+                  <AlertCircle className="w-12 h-12 mx-auto mb-4 opacity-30" />
+                  <p className="font-semibold">暂无订单记录</p>
+                </div>
+              ) : (
+              <table className="w-full">
+                <thead className="bg-slate-800/60 border-b border-slate-700">
+                  <tr>
+                    <th className="text-left py-4 px-6 text-slate-400 font-semibold text-sm">日期</th>
+                    <th className="text-left py-4 px-6 text-slate-400 font-semibold text-sm">套餐</th>
+                    <th className="text-left py-4 px-6 text-slate-400 font-semibold text-sm">金额</th>
+                    <th className="text-left py-4 px-6 text-slate-400 font-semibold text-sm">状态</th>
+                    <th className="text-left py-4 px-6 text-slate-400 font-semibold text-sm">操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {orders.map((order) => (
+                    <tr key={order.id} className="border-b border-slate-800 hover:bg-slate-800/30 transition-colors">
+                      <td className="py-4 px-6 text-slate-300 text-sm">{new Date(order.createdAt).toLocaleDateString('zh-CN')}</td>
+                      <td className="py-4 px-6 text-white text-sm font-semibold">{order.plan}</td>
+                      <td className="py-4 px-6 text-white text-sm font-semibold">¥{order.amount}</td>
+                      <td className="py-4 px-6">
+                        <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold ${
+                          order.status === 'PAID'
+                            ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                            : order.status === 'PENDING'
+                              ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                              : order.status === 'REFUNDED'
+                                ? 'bg-slate-500/10 text-slate-400 border border-slate-500/20'
+                                : 'bg-red-500/10 text-red-400 border border-red-500/20'
+                        }`}>
+                          {order.status === 'PAID' && <CheckCircle2 className="w-3 h-3" />}
+                          {order.status === 'PENDING' && <Clock className="w-3 h-3" />}
+                          {order.status === 'REFUNDED' && <RefreshCw className="w-3 h-3" />}
+                          {order.status === 'PAID' ? '已完成' : order.status === 'PENDING' ? '处理中' : order.status === 'REFUNDED' ? '已退款' : '失败'}
+                        </span>
+                      </td>
+                      <td className="py-4 px-6">
+                        <div className="flex items-center gap-2">
+                          <Button size="sm" variant="ghost"
+                            onClick={() => toast({ title: '电子发票', description: '发票将在 1-3 个工作日内发送至您的注册邮箱' })}
+                            className="text-blue-400 hover:text-blue-300 hover:bg-blue-500/10 h-8 px-3">
+                            <Download className="w-3 h-3 mr-1" />发票
+                          </Button>
+                          {order.status === 'PAID' && (
+                            <Button size="sm" variant="ghost" onClick={() => handleRefund(order.id)}
+                              className="text-red-400 hover:text-red-300 hover:bg-red-500/10 h-8 px-3">
+                              <AlertCircle className="w-3 h-3 mr-1" />退款
+                            </Button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              )}
+            </div>
+          </div>
+
+          <div className="mt-6 p-4 bg-slate-900/50 border border-slate-800 rounded-xl">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="w-5 h-5 text-amber-400 mt-0.5 flex-shrink-0" />
+              <div>
+                <h3 className="text-white font-semibold mb-1">退款政策</h3>
+                <p className="text-slate-400 text-sm">订阅后 7 天内可申请全额退款。退款将在 3-5 个工作日内原路返回。已使用的算力将按比例扣除。</p>
+              </div>
+            </div>
+          </div>
+        </motion.div>
+      </div>
+    </div>
+  )
+}

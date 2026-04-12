@@ -1,0 +1,150 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ============================================================
+   LeadPilot Agent Avatar — Custom Keyframes
+   ============================================================ */
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50%       { transform: translateY(-10px); }
+}
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 12px 2px rgba(59,130,246,0.25), 0 0 40px 6px rgba(59,130,246,0.1); }
+  50%       { box-shadow: 0 0 24px 6px rgba(59,130,246,0.55), 0 0 60px 14px rgba(59,130,246,0.25); }
+}
+@keyframes radar-ring {
+  0%   { transform: scale(0.6); opacity: 0.8; }
+  100% { transform: scale(2.4); opacity: 0; }
+}
+@keyframes vibrate {
+  0%,100% { transform: translate(0,0) rotate(0deg); }
+  20%     { transform: translate(-2px, 1px) rotate(-0.5deg); }
+  40%     { transform: translate(2px,-1px) rotate(0.5deg); }
+  60%     { transform: translate(-1px, 2px) rotate(-0.3deg); }
+  80%     { transform: translate(1px,-2px) rotate(0.3deg); }
+}
+@keyframes data-stream {
+  0%   { background-position: 200% center; }
+  100% { background-position: -200% center; }
+}
+@keyframes zzz-float {
+  0%   { opacity: 0;   transform: translate(0, 0)    scale(0.7); }
+  30%  { opacity: 1;   transform: translate(4px,-8px) scale(0.9); }
+  70%  { opacity: 0.8; transform: translate(10px,-18px) scale(1.1); }
+  100% { opacity: 0;   transform: translate(16px,-28px) scale(0.8); }
+}
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+@keyframes orbit {
+  from { transform: rotate(0deg) translateX(44px) rotate(0deg); }
+  to   { transform: rotate(360deg) translateX(44px) rotate(-360deg); }
+}
+
+/* ============================================================
+   Utility classes (consumed by AgentAvatar)
+   ============================================================ */
+.avatar-float    { animation: float 2.8s ease-in-out infinite; }
+.avatar-pulse-glow { animation: pulse-glow 2.6s ease-in-out infinite; }
+.avatar-vibrate  { animation: vibrate 0.35s linear infinite; }
+.avatar-data-stream {
+  background: linear-gradient(90deg,
+    transparent 0%,
+    rgba(99,102,241,0.15) 20%,
+    rgba(139,92,246,0.6)  40%,
+    rgba(59,130,246,0.8)  50%,
+    rgba(139,92,246,0.6)  60%,
+    rgba(99,102,241,0.15) 80%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: data-stream 1.4s linear infinite;
+}
+.avatar-ring-1 { animation: radar-ring 1.8s ease-out infinite; }
+.avatar-ring-2 { animation: radar-ring 1.8s ease-out 0.6s infinite; }
+.avatar-ring-3 { animation: radar-ring 1.8s ease-out 1.2s infinite; }
+.zzz-1 { animation: zzz-float 2.4s ease-in-out 0s   infinite; }
+.zzz-2 { animation: zzz-float 2.4s ease-in-out 0.8s infinite; }
+.zzz-3 { animation: zzz-float 2.4s ease-in-out 1.6s infinite; }
+
+/* ─────────────────────────────────────────────
+   Custom Scrollbar (nova-workbench Drawer)
+   ───────────────────────────────────────────── */
+.scrollbar-thin::-webkit-scrollbar { width: 4px; }
+.scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.4);
+  border-radius: 99px;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.7);
+}
+
+/* ============================================================
+   Export Credits Shimmer Animation
+   ============================================================ */
+@keyframes shimmer {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+.shimmer {
+  animation: shimmer 2s ease-in-out infinite;
+}
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 84% 4.9%;
+    --primary: 221.2 83.2% 53.3%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+    --accent: 210 40% 96.1%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 221.2 83.2% 53.3%;
+    --radius: 0.5rem;
+  }
+
+  .dark {
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222.2 84% 4.9%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 217.2 91.2% 59.8%;
+    --primary-foreground: 222.2 47.4% 11.2%;
+    --secondary: 217.2 32.6% 17.5%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+    --accent: 217.2 32.6% 17.5%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 224.3 76.3% 48%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}

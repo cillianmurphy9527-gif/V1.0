@@ -1,0 +1,1403 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>集发物流利润中心</title>
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+  <style>
+    /* ================================================================
+       全局重置 & 一屏展示
+       ================================================================ */
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    html, body {
+      height: 100vh;
+      width: 100vw;
+      overflow: hidden;
+      font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
+      color: #1a2b3c;
+    }
+
+    body {
+      position: relative;
+      background: linear-gradient(160deg, #bfd9f2 0%, #cce0f5 25%, #d8eaf9 48%, #d0e4f6 70%, #aac8e8 100%);
+    }
+
+    /* 网格背景 + 底部椭圆光晕 */
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background-image:
+        linear-gradient(rgba(90, 145, 200, 0.055) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(90, 145, 200, 0.055) 1px, transparent 1px);
+      background-size: 40px 40px;
+      mask-image: linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.28) 52%, rgba(0,0,0,0.48) 100%);
+      -webkit-mask-image: linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.28) 52%, rgba(0,0,0,0.48) 100%);
+      z-index: 0;
+    }
+
+    body::after {
+      content: "";
+      position: fixed;
+      left: 0; right: 0; bottom: 0;
+      height: 38%;
+      pointer-events: none;
+      background:
+        radial-gradient(ellipse 110% 70% at 50% 100%, rgba(80, 130, 185, 0.2) 0%, transparent 55%),
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120' viewBox='0 0 120 120'%3E%3Cpath fill='none' stroke='%2388aed4' stroke-opacity='0.14' d='M0 60h120M60 0v120M30 0v120M90 0v120M0 30h120M0 90h120'/%3E%3C/svg%3E");
+      opacity: 0.85;
+      z-index: 0;
+    }
+
+    /* ================================================================
+       页面容器
+       ================================================================ */
+    .page {
+      position: relative;
+      z-index: 1;
+      height: 100vh;
+      width: 100%;
+      max-width: 1920px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ================================================================
+       顶部导航
+       ================================================================ */
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      flex-shrink: 0;
+      height: 9vh;
+      min-height: 50px;
+    }
+
+    .header-title {
+      font-size: 20px;
+      font-weight: 500;
+      letter-spacing: 4px;
+      color: #ffffff;
+      text-shadow: 0 2px 8px rgba(50, 100, 170, 0.3);
+    }
+
+    .weather-pill {
+      position: absolute;
+      right: 0;
+      top: 50%;
+      transform: translateY(-50%);
+      padding: 4px 12px;
+      border-radius: 999px;
+      background: rgba(110, 165, 220, 0.38);
+      color: #fff;
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 0.3px;
+      border: 1px solid rgba(255, 255, 255, 0.32);
+      white-space: nowrap;
+      line-height: 1.4;
+    }
+
+    /* ================================================================
+       KPI 指标行 — 顶部三卡片 + 与下方间距 20px
+       ================================================================ */
+    .kpi-row {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      height: 12vh;
+      min-height: 80px;
+      flex-shrink: 0;
+      padding: 0 20px;
+      box-sizing: border-box;
+      margin-bottom: 20px;
+    }
+
+    /* 卡片基础样式 */
+    .card {
+      background: #ffffff;
+      border-radius: 8px;
+      box-shadow: 0 2px 12px rgba(70, 110, 165, 0.1), 0 1px 3px rgba(0, 0, 0, 0.04);
+    }
+
+    /* KPI 卡片 */
+    .kpi-card {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 14px;
+      gap: 8px;
+      cursor: pointer;
+      transition: transform 0.3s ease, box-shadow 0.3s ease;
+    }
+
+    .kpi-card:hover {
+      transform: scale(1.02);
+      box-shadow: 0 4px 16px rgba(70, 110, 165, 0.2), 0 2px 6px rgba(0, 0, 0, 0.08);
+    }
+
+    .kpi-card.active-tab {
+      border: 2px solid #1890ff;
+      background: rgba(24, 144, 255, 0.06);
+    }
+
+    .kpi-left { flex: 0 0 auto; min-width: 0; }
+
+    .kpi-label {
+      font-size: 12px;
+      font-weight: 500;
+      color: #2c3e50;
+      margin-bottom: 2px;
+      white-space: nowrap;
+    }
+
+    .kpi-yoy { font-size: 10px; color: #5a6b7c; line-height: 1.3; }
+    .kpi-yoy .up   { color: #e53935; font-weight: 600; }
+    .kpi-yoy .down { color: #43a047; font-weight: 600; }
+
+    .kpi-right {
+      display: flex;
+      align-items: baseline;
+      gap: 3px;
+      flex-shrink: 0;
+    }
+
+    .kpi-value {
+      font-size: 22px;
+      font-weight: 700;
+      color: #1a2b3c;
+      letter-spacing: 0.5px;
+      line-height: 1;
+      transition: transform 0.3s ease;
+    }
+
+    .kpi-value.updating {
+      transform: scale(1.1);
+      color: #1890ff;
+    }
+
+    .kpi-unit { font-size: 12px; font-weight: 500; color: #4a5f72; }
+
+    .kpi-icon {
+      flex-shrink: 0;
+      width: 44px;
+      height: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-left: 4px;
+    }
+
+    .kpi-icon svg { width: 44px; height: 44px; }
+
+    /* ================================================================
+       主体三列布局
+       ================================================================ */
+    .main-grid {
+      flex: 1;
+      display: flex;
+      gap: 20px;
+      padding: 0 20px 20px;
+      box-sizing: border-box;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    /* ================================================================
+       左侧栏
+       ================================================================ */
+    .left-col-wrapper {
+      flex: 0 0 24%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+
+    .left-card {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    .card-header {
+      font-size: 13px;
+      font-weight: 700;
+      color: #2c4a6b;
+      padding: 8px 12px 7px;
+      border-bottom: 1px solid rgba(100, 140, 190, 0.12);
+      flex-shrink: 0;
+    }
+
+    .left-inner {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    .sub-title {
+      font-size: 11px;
+      font-weight: 700;
+      color: #3d5a80;
+      padding: 6px 12px 5px;
+      border-bottom: 1px solid rgba(100, 140, 190, 0.1);
+      flex-shrink: 0;
+    }
+
+    .list-wrap {
+      flex: 1;
+      padding: 6px 10px;
+      overflow-y: auto;
+      min-height: 0;
+    }
+
+    .list-row {
+      padding: 5px 2px 4px;
+      border-bottom: 1px solid rgba(0, 0, 0, 0.04);
+      transition: background 0.2s ease;
+    }
+
+    .list-row:last-child { border-bottom: none; }
+
+    .list-row-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 6px;
+      margin-bottom: 4px;
+    }
+
+    .list-name {
+      font-size: 10px;
+      color: #3d4f5f;
+      line-height: 1.4;
+      flex: 1;
+      min-width: 0;
+    }
+
+    .list-num {
+      font-size: 11px;
+      font-weight: 700;
+      color: #1a2b3c;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    .progress {
+      height: 2px;
+      border-radius: 1px;
+      background: rgba(0, 0, 0, 0.07);
+      overflow: hidden;
+    }
+
+    .progress-bar { height: 100%; border-radius: 1px; }
+    .progress-bar.orange { background: linear-gradient(90deg, #ff9f43, #ffb347); }
+    .progress-bar.green  { background: linear-gradient(90deg, #26a69a, #66bb6a); }
+
+    /* ================================================================
+       中间栏 — 统一大白底大卡片
+       ================================================================ */
+    .mid-col {
+      flex: 0 0 49%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      min-height: 0;
+      background: #ffffff;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+      padding: 16px;
+      box-sizing: border-box;
+    }
+
+    /* 卫星环绕区域 */
+    .orbit-section {
+      flex: 0 0 55%;
+      background: transparent;
+      border-radius: 0;
+      position: relative;
+      overflow: visible !important;
+      box-shadow: none;
+      min-height: 0;
+    }
+
+    /* 地图纹理 */
+    .orbit-section::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='600' height='300' viewBox='0 0 600 300'%3E%3Cpath d='M50 80 Q80 60 110 70 Q150 50 180 65 Q220 45 250 60 Q290 40 320 55 Q350 35 390 50 Q420 40 450 55 Q490 45 520 60 Q550 50 580 65' fill='none' stroke='%2388aed4' stroke-width='0.6' stroke-opacity='0.15'/%3E%3Cpath d='M30 130 Q70 110 110 120 Q150 100 200 115 Q240 95 280 110 Q320 90 360 105 Q400 85 440 100 Q480 80 520 95 Q560 85 590 100' fill='none' stroke='%2388aed4' stroke-width='0.6' stroke-opacity='0.15'/%3E%3Cpath d='M40 180 Q80 160 130 175 Q170 155 210 170 Q250 150 290 165 Q330 145 370 160 Q410 140 450 155 Q490 135 530 150 Q560 140 580 155' fill='none' stroke='%2388aed4' stroke-width='0.6' stroke-opacity='0.15'/%3E%3Cpath d='M60 220 Q100 200 150 215 Q190 195 230 210 Q270 190 310 205 Q350 185 390 200 Q430 180 470 195 Q510 175 550 190' fill='none' stroke='%2388aed4' stroke-width='0.6' stroke-opacity='0.12'/%3E%3Cpath d='M80 260 Q120 240 170 255 Q210 235 250 250 Q290 230 330 245 Q370 225 410 240 Q450 220 490 235 Q530 215 570 230' fill='none' stroke='%2388aed4' stroke-width='0.5' stroke-opacity='0.1'/%3E%3Cellipse cx='300' cy='150' rx='200' ry='100' fill='none' stroke='%2388aed4' stroke-width='0.5' stroke-opacity='0.08' stroke-dasharray='6 4'/%3E%3Cellipse cx='300' cy='150' rx='130' ry='65' fill='none' stroke='%2388aed4' stroke-width='0.4' stroke-opacity='0.06' stroke-dasharray='4 6'/%3E%3C/svg%3E");
+      background-size: cover;
+      background-position: center;
+      opacity: 0.8;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .orbit-stage {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      min-height: 0;
+      z-index: 1;
+    }
+
+    /* 中心大圆环 */
+    .orbit-center {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      z-index: 10;
+      margin: 0;
+    }
+
+    .orbit-ring-inner {
+      width: 115px;
+      height: 115px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.97);
+      box-shadow:
+        0 0 0 3px rgba(100, 160, 220, 0.3),
+        0 0 30px rgba(24, 144, 255, 0.15),
+        0 0 60px rgba(24, 144, 255, 0.08),
+        0 6px 24px rgba(80, 120, 180, 0.25);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      border: 2px solid rgba(100, 160, 220, 0.5);
+    }
+
+    .orbit-big-num {
+      font-size: 18px;
+      font-weight: 700;
+      color: #1a3a5c;
+      letter-spacing: 0.5px;
+    }
+
+    .orbit-sub {
+      font-size: 9px;
+      color: #5a7a9a;
+      margin-top: 3px;
+      text-align: center;
+    }
+
+    /* 6 个卫星卡片 — 椭圆轨道布局 */
+    .sat-card {
+      position: absolute;
+      width: 125px;
+      padding: 8px 10px;
+      height: auto !important;
+      min-height: 70px;
+      background: #fff;
+      border-radius: 8px;
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
+      border: 1px solid rgba(100, 140, 190, 0.12);
+      z-index: 5;
+      box-sizing: border-box;
+      cursor: pointer;
+      transition: opacity 0.3s ease, transform 0.3s ease;
+    }
+
+    .sat-card:hover { transform: translateY(-2px); box-shadow: 0 6px 16px rgba(0,0,0,0.1); }
+    .sat-card.updating { opacity: 0.5; transform: scale(0.95); }
+
+    .sat-card .sat-title {
+      font-weight: 700;
+      color: #2c4a6b;
+      font-size: 12px;
+      margin-bottom: 2px;
+      line-height: 1.3;
+      padding-right: 18px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .sat-card .sat-val {
+      font-size: 16px;
+      font-weight: 700;
+      color: #1a2b3c;
+      margin-bottom: 1px;
+    }
+
+    .sat-card .sat-yoy { font-size: 9px; color: #5a6b7c; }
+    .sat-card .sat-yoy .up   { color: #e53935; font-weight: 600; }
+    .sat-card .sat-yoy .down { color: #43a047; font-weight: 600; }
+
+    .sat-icon {
+      position: absolute;
+      right: 6px;
+      top: 6px;
+      width: 16px;
+      height: 16px;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* 椭圆轨道坐标 */
+    .sat-tl { top: 8%;  left: 15%; }
+    .sat-l  { top: 50%; left: 2%;  transform: translateY(-50%); }
+    .sat-bl { bottom: 8%; left: 15%; }
+    .sat-tr { top: 8%;  right: 15%; }
+    .sat-r  { top: 50%; right: 2%;  transform: translateY(-50%); }
+    .sat-br { bottom: 8%; right: 15%; }
+
+    /* 下半部分图表区 */
+    .charts-row-mid {
+      flex: 0 0 40%;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .charts-mid-container {
+      flex: 1;
+      background: transparent;
+      border-radius: 0;
+      box-shadow: none;
+      display: flex;
+      gap: 16px;
+      overflow: hidden;
+      min-height: 0;
+    }
+
+    .charts-mid-container .chart-box { flex: 1; min-height: 0; }
+
+    .chart-box {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      background: transparent;
+      border-radius: 0;
+      box-shadow: none;
+      overflow: hidden;
+      min-height: 0;
+    }
+
+    .chart-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: #3d5a80;
+      padding: 8px 12px 6px;
+      flex-shrink: 0;
+      border-bottom: 1px solid rgba(100, 140, 190, 0.1);
+    }
+
+    .chart-dom {
+      flex: 1;
+      min-height: 0;
+      width: 100%;
+    }
+
+    /* ================================================================
+       右侧栏
+       ================================================================ */
+    .right-col-wrapper {
+      flex: 0 0 24%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      min-height: 0;
+    }
+
+    .right-card {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    .right-inner {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    .right-chart-area {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      overflow: hidden;
+      border-top: 1px solid rgba(100, 140, 190, 0.1);
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .right-chart-area:hover { transform: translateY(-2px); box-shadow: 0 6px 16px rgba(0,0,0,0.1); }
+
+    .right-chart-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 10px 5px;
+      flex-shrink: 0;
+    }
+
+    .right-chart-head .chart-title-inline {
+      font-size: 12px;
+      font-weight: 700;
+      color: #3d5a80;
+    }
+
+    .chart-dom-tall { flex: 1; min-height: 0; }
+
+    /* ================================================================
+       时间筛选器
+       ================================================================ */
+    .time-filter-wrapper {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 10px 0 4px;
+      z-index: 20;
+      flex-shrink: 0;
+    }
+
+    .time-filter {
+      display: flex;
+      background: rgba(255, 255, 255, 0.6);
+      border-radius: 20px;
+      padding: 3px;
+      gap: 2px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+    }
+
+    .time-btn {
+      padding: 6px 20px;
+      border-radius: 18px;
+      border: none;
+      background: transparent;
+      color: #5a6b7c;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.25s ease;
+      font-family: inherit;
+    }
+
+    .time-btn:hover { color: #1890ff; background: rgba(24, 144, 255, 0.08); }
+
+    .time-btn.active {
+      background: #1890ff;
+      color: #fff;
+      box-shadow: 0 2px 6px rgba(24, 144, 255, 0.3);
+    }
+
+    /* ================================================================
+       详情弹窗
+       ================================================================ */
+    .modal-overlay {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background: rgba(0, 0, 0, 0.6);
+      backdrop-filter: blur(5px);
+      -webkit-backdrop-filter: blur(5px);
+      z-index: 999;
+      display: none;
+      justify-content: center;
+      align-items: center;
+    }
+
+    .modal-overlay.show { display: flex; }
+
+    .modal-content {
+      width: 65%;
+      max-height: 75vh;
+      background: #ffffff;
+      border-radius: 12px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3), 0 8px 20px rgba(0, 0, 0, 0.15);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      animation: modalIn 0.3s ease;
+    }
+
+    @keyframes modalIn {
+      from { opacity: 0; transform: scale(0.9) translateY(-20px); }
+      to   { opacity: 1; transform: scale(1) translateY(0); }
+    }
+
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 16px 24px;
+      border-bottom: 1px solid rgba(100, 140, 190, 0.15);
+      flex-shrink: 0;
+      background: linear-gradient(135deg, #f8fbff 0%, #ffffff 100%);
+    }
+
+    .modal-header h3 {
+      font-size: 16px;
+      font-weight: 600;
+      color: #1a3a5c;
+      letter-spacing: 0.5px;
+    }
+
+    .close-btn {
+      width: 32px; height: 32px;
+      border-radius: 50%;
+      border: none;
+      background: rgba(0, 0, 0, 0.05);
+      color: #5a6b7c;
+      font-size: 20px;
+      line-height: 1;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .close-btn:hover { background: #ff4d4f; color: #fff; transform: rotate(90deg); }
+
+    .modal-body {
+      overflow-y: auto;
+      max-height: calc(75vh - 65px);
+      padding: 20px 24px;
+    }
+
+    /* 斑马线表格 */
+    .data-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    .data-table thead {
+      background: linear-gradient(135deg, #e8f4ff 0%, #d6ecff 100%);
+      position: sticky;
+      top: 0;
+      z-index: 2;
+    }
+
+    .data-table thead th {
+      padding: 12px 16px;
+      text-align: left;
+      font-weight: 600;
+      color: #1a3a5c;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      border-bottom: 2px solid #b8d4f0;
+      white-space: nowrap;
+    }
+
+    .data-table tbody tr { transition: all 0.15s ease; }
+    .data-table tbody tr:nth-child(odd)  { background: #fafcff; }
+    .data-table tbody tr:nth-child(even)  { background: #ffffff; }
+    .data-table tbody tr:hover { background: rgba(24, 144, 255, 0.08); }
+
+    .data-table tbody td {
+      padding: 12px 16px;
+      border-bottom: 1px solid rgba(100, 140, 190, 0.1);
+      color: #2c3e50;
+    }
+
+    .data-table tbody tr:last-child td { border-bottom: none; }
+
+    .data-table .col-index   { width: 50px; text-align: center; color: #8c9eb0; font-weight: 500; }
+    .data-table .col-name     { font-weight: 500; color: #2c4a6b; }
+    .data-table .col-plan,
+    .data-table .col-actual    { text-align: right; font-variant-numeric: tabular-nums; font-weight: 500; }
+    .data-table .col-rate     { text-align: center; font-weight: 600; }
+    .data-table .col-rate .rate-high { color: #52c41a; background: rgba(82, 196, 26, 0.1); padding: 2px 8px; border-radius: 10px; }
+    .data-table .col-rate .rate-low  { color: #ff4d4f; background: rgba(255, 77, 79, 0.1); padding: 2px 8px; border-radius: 10px; }
+    .data-table .col-yoy      { text-align: center; }
+    .data-table .yoy-up        { color: #ff4d4f; font-weight: 600; }
+    .data-table .yoy-down      { color: #52c41a; font-weight: 600; }
+
+    .data-table .summary-row {
+      background: linear-gradient(135deg, #f0f7ff 0%, #e5f0ff 100%) !important;
+      font-weight: 600;
+    }
+
+    .data-table .summary-row td {
+      border-top: 2px solid #b8d4f0;
+      color: #1a3a5c;
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+
+    <!-- 顶部导航 -->
+    <header class="header">
+      <h1 class="header-title">集发物流利润中心</h1>
+      <div class="weather-pill">20 ~ 27 °C 晴 2025年10月1日</div>
+    </header>
+
+    <!-- KPI 指标行 -->
+    <section class="kpi-row">
+      <div class="card kpi-card" data-index="0">
+        <div class="kpi-left">
+          <div class="kpi-label">箱量</div>
+          <div class="kpi-yoy">同比: 22,300 <span class="down">↓12%</span></div>
+        </div>
+        <div class="kpi-right">
+          <span class="kpi-value">22,222</span>
+          <span class="kpi-unit">TEU</span>
+        </div>
+        <div class="kpi-icon" aria-hidden="true">
+          <svg width="56" height="56" viewBox="0 0 56 56" fill="none">
+            <rect x="10" y="18" width="36" height="26" rx="2.5" fill="#9C7FD8" opacity="0.9"/>
+            <rect x="14" y="22" width="12" height="8" fill="rgba(255,255,255,0.35)"/>
+            <rect x="30" y="22" width="12" height="8" fill="rgba(255,255,255,0.2)"/>
+            <rect x="6" y="32" width="44" height="6" rx="2" fill="#7B5FC7"/>
+          </svg>
+        </div>
+      </div>
+
+      <div class="card kpi-card active-tab" data-index="1">
+        <div class="kpi-left">
+          <div class="kpi-label">经营性利润总额</div>
+          <div class="kpi-yoy">同比: 22,000 <span class="up">↑12%</span></div>
+        </div>
+        <div class="kpi-right">
+          <span class="kpi-value">22,222</span>
+          <span class="kpi-unit">万元</span>
+        </div>
+        <div class="kpi-icon" aria-hidden="true">
+          <svg width="56" height="56" viewBox="0 0 56 56" fill="none">
+            <circle cx="28" cy="32" r="14" fill="#4FC3F7" opacity="0.85"/>
+            <path d="M28 14 L28 25 M22 19 L34 19" stroke="#26A69A" stroke-width="2.5" stroke-linecap="round"/>
+            <path d="M28 17 L33 11" stroke="#26A69A" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+        </div>
+      </div>
+
+      <div class="card kpi-card" data-index="2">
+        <div class="kpi-left">
+          <div class="kpi-label">应收账款</div>
+          <div class="kpi-yoy">同比: 22,000 <span class="up">↑12%</span></div>
+        </div>
+        <div class="kpi-right">
+          <span class="kpi-value">22,222</span>
+          <span class="kpi-unit">万元</span>
+        </div>
+        <div class="kpi-icon" aria-hidden="true">
+          <svg width="56" height="56" viewBox="0 0 56 56" fill="none">
+            <ellipse cx="28" cy="38" rx="16" ry="7" fill="#FF8A65" opacity="0.3"/>
+            <path d="M16 34 Q28 22 40 34" stroke="#FF7043" stroke-width="3" fill="none" stroke-linecap="round"/>
+            <circle cx="28" cy="24" r="10" fill="#FFB74D"/>
+            <text x="28" y="28" text-anchor="middle" fill="#fff" font-size="10" font-weight="bold" font-family="sans-serif">¥</text>
+          </svg>
+        </div>
+      </div>
+    </section>
+
+    <!-- 主体三列 -->
+    <div class="main-grid">
+
+      <!-- 左栏：客户 -->
+      <div class="left-col-wrapper">
+        <div class="card left-card">
+          <div class="card-header">客户</div>
+          <div class="left-inner">
+            <div class="sub-title">贡献</div>
+            <div class="list-wrap" id="list-contrib"></div>
+            <div class="sub-title">业务量</div>
+            <div class="list-wrap" id="list-volume"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 中栏：卫星环绕 + 图表 -->
+      <section class="mid-col">
+
+        <div class="orbit-section">
+          <!-- 时间筛选器 -->
+          <div class="time-filter-wrapper">
+            <div class="time-filter">
+              <button class="time-btn" data-period="year">年</button>
+              <button class="time-btn active" data-period="month">月</button>
+              <button class="time-btn" data-period="day">日</button>
+            </div>
+          </div>
+
+          <div class="orbit-stage">
+            <!-- 中心大圆环 -->
+            <div class="orbit-center">
+              <div class="orbit-ring-inner">
+                <div class="orbit-big-num">22,222</div>
+                <div class="orbit-sub">利润总额 (万元)</div>
+              </div>
+            </div>
+
+            <!-- 左上：专项物流 -->
+            <div class="sat-card sat-tl" data-title="专项物流中心">
+              <div class="sat-icon" style="background: rgba(236, 64, 122, 0.18);">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="#E91E63"><rect x="4" y="8" width="16" height="12" rx="1"/></svg>
+              </div>
+              <div class="sat-title">专项物流中心</div>
+              <div class="sat-val">22,222 万元</div>
+              <div class="sat-yoy">同比: 22,000 <span class="up">↑12%</span></div>
+            </div>
+
+            <!-- 左中：综保中心 -->
+            <div class="sat-card sat-l" data-title="综保中心">
+              <div class="sat-icon" style="background: rgba(156, 39, 176, 0.18);">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="#9C27B0"><circle cx="12" cy="12" r="8"/></svg>
+              </div>
+              <div class="sat-title">综保中心</div>
+              <div class="sat-val">22,222 万元</div>
+              <div class="sat-yoy">同比: 22,000 <span class="up">↑12%</span></div>
+            </div>
+
+            <!-- 左下：查验中心 -->
+            <div class="sat-card sat-bl" data-title="查验中心">
+              <div class="sat-icon" style="background: rgba(0, 172, 193, 0.18);">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="#00ACC1"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+              </div>
+              <div class="sat-title">查验中心</div>
+              <div class="sat-val">22,222 万元</div>
+              <div class="sat-yoy">同比: 22,000 <span class="up">↑12%</span></div>
+            </div>
+
+            <!-- 右上：多式联运 -->
+            <div class="sat-card sat-tr" data-title="多式联运中心">
+              <div class="sat-icon" style="background: rgba(67, 160, 71, 0.18);">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="#43A047"><path d="M4 14h16v4H4z"/></svg>
+              </div>
+              <div class="sat-title">多式联运中心</div>
+              <div class="sat-val">22,222 万元</div>
+              <div class="sat-yoy">同比: 22,000 <span class="down">↓12%</span></div>
+            </div>
+
+            <!-- 右中：港口物流 -->
+            <div class="sat-card sat-r" data-title="港口物流集散中心">
+              <div class="sat-icon" style="background: rgba(33, 150, 243, 0.18);">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="#2196F3"><path d="M12 2L2 7v10c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V7l-10-5z"/></svg>
+              </div>
+              <div class="sat-title">港口物流集散中心</div>
+              <div class="sat-val">22,222 万元</div>
+              <div class="sat-yoy">同比: 22,000 <span class="down">↓12%</span></div>
+            </div>
+
+            <!-- 右下：箱管中心 -->
+            <div class="sat-card sat-br" data-title="箱管中心">
+              <div class="sat-icon" style="background: rgba(66, 165, 245, 0.22);">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="#42A5F5"><rect x="5" y="10" width="14" height="8" rx="1"/></svg>
+              </div>
+              <div class="sat-title">箱管中心</div>
+              <div class="sat-val">22,222 万元</div>
+              <div class="sat-yoy">同比: 22,000 <span class="up">↑12%</span></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 下半部分图表 -->
+        <div class="charts-row-mid">
+          <div class="charts-mid-container">
+            <div class="chart-box">
+              <div class="chart-title">增降幅</div>
+              <div id="chart-bar-mid" class="chart-dom"></div>
+            </div>
+            <div class="chart-box">
+              <div class="chart-title">趋势</div>
+              <div id="chart-line-mid" class="chart-dom"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 右栏：营收 -->
+      <div class="right-col-wrapper">
+        <div class="card right-card">
+          <div class="card-header">营收</div>
+          <div class="right-inner">
+            <div class="right-chart-area" data-title="收入">
+              <div class="right-chart-head">
+                <span class="chart-title-inline">收入</span>
+              </div>
+              <div id="chart-income" class="chart-dom chart-dom-tall"></div>
+            </div>
+            <div class="right-chart-area" data-title="利润">
+              <div class="right-chart-head">
+                <span class="chart-title-inline">利润</span>
+              </div>
+              <div id="chart-profit-right" class="chart-dom chart-dom-tall"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /main-grid -->
+  </div><!-- /page -->
+
+  <!-- 详情弹窗 -->
+  <div id="detail-modal" class="modal-overlay">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="modal-title">详情数据</h3>
+        <button class="close-btn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <table class="data-table" id="modal-table">
+          <thead>
+            <tr>
+              <th class="col-index">序号</th>
+              <th>统计维度</th>
+              <th style="text-align:right;">计划值</th>
+              <th style="text-align:right;">实际值</th>
+              <th style="text-align:center;">达成率</th>
+              <th style="text-align:center;">同比</th>
+            </tr>
+          </thead>
+          <tbody id="modal-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    /* ================================================================
+       数据配置
+       ================================================================ */
+    var DATA_CONFIG = {
+      profit: {
+        title: "经营性利润总额",
+        unit: "万元",
+        satellites: [
+          { title: "专项物流中心",         icon: "#E91E63", iconBg: "rgba(236, 64, 122, 0.18)" },
+          { title: "多式联运中心",         icon: "#43A047", iconBg: "rgba(67, 160, 71, 0.18)" },
+          { title: "综保中心",             icon: "#9C27B0", iconBg: "rgba(156, 39, 176, 0.18)" },
+          { title: "港口物流集散中心",     icon: "#2196F3", iconBg: "rgba(33, 150, 243, 0.18)" },
+          { title: "查验中心",             icon: "#00ACC1", iconBg: "rgba(0, 172, 193, 0.18)" },
+          { title: "箱管中心",             icon: "#42A5F5", iconBg: "rgba(66, 165, 245, 0.22)" }
+        ],
+        iconSvg: '<circle cx="28" cy="32" r="14" fill="#4FC3F7" opacity="0.85"/>' +
+                 '<path d="M28 14 L28 25 M22 19 L34 19" stroke="#26A69A" stroke-width="2.5" stroke-linecap="round"/>' +
+                 '<path d="M28 17 L33 11" stroke="#26A69A" stroke-width="2" stroke-linecap="round"/>'
+      },
+      volume: {
+        title: "箱量",
+        unit: "TEU",
+        satellites: [
+          { title: "箱量指标完成情况", icon: "#E91E63", iconBg: "rgba(236, 64, 122, 0.18)" },
+          { title: "堆场利用率",       icon: "#9C27B0", iconBg: "rgba(156, 39, 176, 0.18)" },
+          { title: "仓库利用率",        icon: "#00ACC1", iconBg: "rgba(0, 172, 193, 0.18)" },
+          { title: "泊位作业利用率",    icon: "#43A047", iconBg: "rgba(67, 160, 71, 0.18)" },
+          { title: "拖车平均周转时间",  icon: "#FF9800", iconBg: "rgba(255, 152, 0, 0.18)" },
+          { title: "闸口通行效率",      icon: "#2196F3", iconBg: "rgba(33, 150, 243, 0.18)" }
+        ],
+        iconSvg: '<rect x="10" y="18" width="36" height="26" rx="2.5" fill="#9C7FD8" opacity="0.9"/>' +
+                 '<rect x="14" y="22" width="12" height="8" fill="rgba(255,255,255,0.35)"/>' +
+                 '<rect x="30" y="22" width="12" height="8" fill="rgba(255,255,255,0.2)"/>' +
+                 '<rect x="6" y="32" width="44" height="6" rx="2" fill="#7B5FC7"/>'
+      },
+      receivable: {
+        title: "应收账款",
+        unit: "万元",
+        satellites: [
+          { title: "逾期账款总额",       icon: "#E91E63", iconBg: "rgba(236, 64, 122, 0.18)" },
+          { title: "90天以上账龄",       icon: "#9C27B0", iconBg: "rgba(156, 39, 176, 0.18)" },
+          { title: "坏账准备金",         icon: "#FF5722", iconBg: "rgba(255, 87, 34, 0.18)" },
+          { title: "当月回款达成率",     icon: "#43A047", iconBg: "rgba(67, 160, 71, 0.18)" },
+          { title: "平均付款天数(DSO)",  icon: "#FF9800", iconBg: "rgba(255, 152, 0, 0.18)" },
+          { title: "重点客户欠款占比",   icon: "#2196F3", iconBg: "rgba(33, 150, 243, 0.18)" }
+        ],
+        iconSvg: '<ellipse cx="28" cy="38" rx="16" ry="7" fill="#FF8A65" opacity="0.3"/>' +
+                 '<path d="M16 34 Q28 22 40 34" stroke="#FF7043" stroke-width="3" fill="none" stroke-linecap="round"/>' +
+                 '<circle cx="28" cy="24" r="10" fill="#FFB74D"/>'
+      }
+    };
+
+    /* ================================================================
+       状态
+       ================================================================ */
+    var currentKpiIndex = 1;
+    var currentPeriod = "month";
+    var charts = {};
+
+    /* ================================================================
+       工具函数
+       ================================================================ */
+    function randomNum(min, max) {
+      return Math.floor(Math.random() * (max - min + 1)) + min;
+    }
+
+    function randomFloat(min, max, decimals) {
+      return (Math.random() * (max - min) + min).toFixed(decimals || 0);
+    }
+
+    function formatNumber(num) {
+      return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    }
+
+    /* ================================================================
+       生成随机卫星数据
+       ================================================================ */
+    function getRandomData(type) {
+      var data = DATA_CONFIG[type].satellites;
+      var result = [];
+      for (var i = 0; i < data.length; i++) {
+        var value, yoy;
+        if (type === "volume") {
+          if (i < 4) {
+            value = randomNum(60, 98); yoy = randomNum(-15, 20);
+          } else if (i === 4) {
+            value = randomFloat(1.5, 4.5, 1); yoy = randomNum(-20, 10);
+          } else {
+            value = randomNum(15, 45); yoy = randomNum(-10, 25);
+          }
+        } else if (type === "receivable") {
+          if (i < 3) {
+            value = randomNum(500, 5000); yoy = randomNum(-20, 30);
+          } else if (i === 3) {
+            value = randomNum(70, 98); yoy = randomNum(-10, 15);
+          } else if (i === 4) {
+            value = randomNum(30, 90); yoy = randomNum(-15, 10);
+          } else {
+            value = randomNum(40, 75); yoy = randomNum(-20, 20);
+          }
+        } else {
+          value = randomNum(10000, 30000); yoy = randomNum(-20, 30);
+        }
+        result.push({ value: value, yoy: yoy });
+      }
+      return result;
+    }
+
+    /* ================================================================
+       渲染 KPI 卡片
+       ================================================================ */
+    function renderKpiCards() {
+      var kpiTypes = ["volume", "profit", "receivable"];
+      var kpiCards = document.querySelectorAll(".kpi-card");
+      kpiCards.forEach(function(card, index) {
+        var type = kpiTypes[index];
+        var config = DATA_CONFIG[type];
+        var value = type === "volume" ? randomNum(20000, 25000) :
+                    type === "receivable" ? randomNum(5000, 8000) : randomNum(20000, 25000);
+        card.querySelector(".kpi-label").textContent = config.title;
+        card.querySelector(".kpi-value").textContent = formatNumber(value);
+        card.querySelector(".kpi-unit").textContent = config.unit;
+        card.querySelector(".kpi-icon svg").innerHTML = config.iconSvg;
+      });
+    }
+
+    /* ================================================================
+       渲染卫星卡片 & 中心圆环
+       ================================================================ */
+    function renderSatCards(type) {
+      var config = DATA_CONFIG[type];
+      var data = getRandomData(type);
+      var satCards = document.querySelectorAll(".sat-card");
+
+      var centerNum = document.querySelector(".orbit-big-num");
+      var centerSub = document.querySelector(".orbit-sub");
+      var totalVal = 0;
+      data.forEach(function(d) {
+        totalVal += typeof d.value === "number" ? d.value : parseFloat(d.value);
+      });
+      centerNum.textContent = formatNumber(Math.round(totalVal));
+      centerSub.textContent = config.title + " (" + config.unit + ")";
+
+      satCards.forEach(function(card, index) {
+        var satData = data[index];
+        var satConfig = config.satellites[index];
+        card.querySelector(".sat-title").textContent = satConfig.title;
+        card.querySelector(".sat-icon").style.background = satConfig.iconBg;
+        card.querySelector(".sat-icon svg").setAttribute("fill", satConfig.icon);
+        var displayValue = typeof satData.value === "number" ?
+          formatNumber(satData.value) : satData.value;
+        card.querySelector(".sat-val").textContent = displayValue + " " + config.unit;
+        var yoyClass = satData.yoy >= 0 ? "up" : "down";
+        var yoySymbol = satData.yoy >= 0 ? "↑" : "↓";
+        card.querySelector(".sat-yoy").innerHTML =
+          '同比: ' + formatNumber(Math.abs(satData.yoy)) + ' <span class="' + yoyClass + '">' +
+          yoySymbol + Math.abs(satData.yoy) + '%</span>';
+      });
+    }
+
+    /* ================================================================
+       生成随机图表数据
+       ================================================================ */
+    function generateRandomChartData(period) {
+      var multiplier = period === "year" ? 12 : period === "month" ? 1 : 0.1;
+      var numPoints = period === "year" ? 12 : period === "month" ? 30 : 24;
+      var xAxis = period === "year" ? ["1","2","3","4","5","6","7","8","9","10","11","12"] :
+                  period === "month" ? Array.from({length: 30}, function(_, i) { return (i + 1).toString(); }) :
+                  Array.from({length: 24}, function(_, i) { return i + "时"; });
+
+      var lineC = [], lineY = [], bars = [], incC = [], incY = [], proC = [], proY = [];
+      for (var i = 0; i < numPoints; i++) {
+        lineC.push(Math.round(randomNum(30, 90) * multiplier));
+        lineY.push(Math.round(randomNum(25, 85) * multiplier));
+        bars.push(randomNum(-15, 25));
+        incC.push(Math.round(randomNum(200, 500) * multiplier));
+        incY.push(Math.round(randomNum(180, 450) * multiplier));
+        proC.push(Math.round(randomNum(120, 350) * multiplier));
+        proY.push(Math.round(randomNum(100, 300) * multiplier));
+      }
+      return { xAxisData: xAxis, lineCurrent: lineC, lineYoy: lineY, barVals: bars,
+               incomeCur: incC, incomeYoy: incY, profitCur: proC, profitYoy: proY };
+    }
+
+    /* ================================================================
+       初始化图表
+       ================================================================ */
+    function initCharts() {
+      var d = generateRandomChartData(currentPeriod);
+      var split = { lineStyle: { color: "rgba(100,140,180,0.1)" } };
+      var axis  = { lineStyle: { color: "rgba(100,140,180,0.3)" } };
+
+      function makeLine(id, colors, legend, grid, seriesData, yMin) {
+        var dom = document.getElementById(id);
+        if (!dom) return;
+        if (charts[id]) charts[id].dispose();
+        charts[id] = echarts.init(dom);
+        charts[id].setOption({
+          color: colors,
+          tooltip: { trigger: "axis" },
+          legend: { data: legend, top: 3, right: 10, textStyle: { fontSize: 10, color: "#5a6b7c" } },
+          grid: grid,
+          xAxis: { type: "category", data: d.xAxisData, axisLine: axis, axisLabel: { color: "#5a6b7c", fontSize: 10 } },
+          yAxis: { type: "value", min: yMin || 0, name: "万元", nameTextStyle: { color: "#5a6b7c", fontSize: 10 },
+                   splitLine: split, axisLabel: { color: "#5a6b7c", fontSize: 10 } },
+          series: seriesData.map(function(s) {
+            return { name: s.name, type: s.type, smooth: true, symbol: "circle", symbolSize: 5,
+                     lineStyle: { width: 2 }, data: s.data };
+          })
+        });
+      }
+
+      function makeBar(id, grid) {
+        var dom = document.getElementById(id);
+        if (!dom) return;
+        if (charts[id]) charts[id].dispose();
+        charts[id] = echarts.init(dom);
+        charts[id].setOption({
+          color: ["#ff9800"],
+          tooltip: { trigger: "axis", formatter: function(p) { return p[0].name + "<br/>" + p[0].seriesName + ": " + p[0].value + "%"; } },
+          grid: grid,
+          xAxis: { type: "category", data: d.xAxisData, axisLine: axis, axisLabel: { color: "#5a6b7c", fontSize: 10 } },
+          yAxis: { type: "value", min: -20, max: 30,
+                   axisLabel: { color: "#5a6b7c", fontSize: 10, formatter: function(v) { return v + "%"; } },
+                   splitLine: split },
+          series: [{ name: "增降幅", type: "bar", barWidth: "42%",
+                     data: d.barVals.map(function(v) {
+                       return { value: v, itemStyle: { color: "#ff9800",
+                                 borderRadius: v >= 0 ? [2, 2, 0, 0] : [0, 0, 2, 2] } };
+                     }) }]
+        });
+      }
+
+      makeLine("chart-line-mid",   ["#1976d2","#43a047"], ["本期","同比"],  { left:42, right:16, top:32, bottom:28 }, [
+        { name:"本期", type:"line", data:d.lineCurrent }, { name:"同比", type:"line", data:d.lineYoy }
+      ], 0);
+
+      makeBar("chart-bar-mid", { left:42, right:16, top:24, bottom:28 });
+
+      makeLine("chart-income", ["#0d47a1","#64b5f6"], ["本年度","同比"], { left:42, right:16, top:32, bottom:24 }, [
+        { name:"本年度", type:"line", data:d.incomeCur }, { name:"同比", type:"line", data:d.incomeYoy }
+      ], 0);
+
+      makeLine("chart-profit-right", ["#ff9800","#43a047"], ["本年度","同比"], { left:42, right:16, top:32, bottom:24 }, [
+        { name:"本年度", type:"line", data:d.profitCur }, { name:"同比", type:"line", data:d.profitYoy }
+      ], 0);
+
+      window.addEventListener("resize", function() {
+        Object.keys(charts).forEach(function(k) { if (charts[k]) charts[k].resize(); });
+      });
+    }
+
+    /* ================================================================
+       刷新图表（时间切换）
+       ================================================================ */
+    function refreshCharts(period) {
+      var d = generateRandomChartData(period);
+      if (charts["chart-line-mid"]) charts["chart-line-mid"].setOption({
+        xAxis: { data: d.xAxisData },
+        series: [{ data: d.lineCurrent }, { data: d.lineYoy }]
+      });
+      if (charts["chart-bar-mid"]) charts["chart-bar-mid"].setOption({
+        xAxis: { data: d.xAxisData },
+        series: [{ data: d.barVals.map(function(v) {
+          return { value: v, itemStyle: { color: "#ff9800",
+                    borderRadius: v >= 0 ? [2, 2, 0, 0] : [0, 0, 2, 2] } };
+        }) }]
+      });
+      if (charts["chart-income"]) charts["chart-income"].setOption({
+        xAxis: { data: d.xAxisData },
+        series: [{ data: d.incomeCur }, { data: d.incomeYoy }]
+      });
+      if (charts["chart-profit-right"]) charts["chart-profit-right"].setOption({
+        xAxis: { data: d.xAxisData },
+        series: [{ data: d.profitCur }, { data: d.profitYoy }]
+      });
+    }
+
+    /* ================================================================
+       KPI 卡片点击 → 切换卫星数据
+       ================================================================ */
+    function setupKpiClickHandlers() {
+      var kpiCards = document.querySelectorAll(".kpi-card");
+      var kpiTypes = ["volume", "profit", "receivable"];
+      kpiCards.forEach(function(card, index) {
+        card.addEventListener("click", function() {
+          kpiCards.forEach(function(c) { c.classList.remove("active-tab"); });
+          card.classList.add("active-tab");
+          currentKpiIndex = index;
+          var satCards = document.querySelectorAll(".sat-card");
+          satCards.forEach(function(c) { c.classList.add("updating"); });
+          setTimeout(function() {
+            renderSatCards(kpiTypes[index]);
+            satCards.forEach(function(c) { c.classList.remove("updating"); });
+          }, 150);
+          var valueEl = card.querySelector(".kpi-value");
+          valueEl.classList.add("updating");
+          setTimeout(function() { renderKpiCards(); valueEl.classList.remove("updating"); }, 150);
+        });
+      });
+    }
+
+    /* ================================================================
+       时间筛选器点击 → 刷新图表
+       ================================================================ */
+    function setupTimeFilterHandlers() {
+      var btns = document.querySelectorAll(".time-btn");
+      btns.forEach(function(btn) {
+        btn.addEventListener("click", function() {
+          btns.forEach(function(b) { b.classList.remove("active"); });
+          btn.classList.add("active");
+          currentPeriod = btn.dataset.period;
+          var satCards = document.querySelectorAll(".sat-card");
+          satCards.forEach(function(c) { c.classList.add("updating"); });
+          setTimeout(function() { refreshCharts(currentPeriod); satCards.forEach(function(c) { c.classList.remove("updating"); }); }, 200);
+        });
+      });
+    }
+
+    /* ================================================================
+       渲染左侧客户列表
+       ================================================================ */
+    function buildList(containerId, barClass) {
+      var el = document.getElementById(containerId);
+      var rowName = "德邦物流快递运输股份有限公司";
+      var rowNum = formatNumber(randomNum(1000000, 30000000));
+      var html = "";
+      for (var i = 0; i < 6; i++) {
+        html += '<div class="list-row" data-title="' + rowName + '">' +
+                '<div class="list-row-head">' +
+                '<span class="list-name">' + rowName + '</span>' +
+                '<span class="list-num">' + rowNum + '</span></div>' +
+                '<div class="progress"><div class="progress-bar ' + barClass + '"></div></div></div>';
+      }
+      el.innerHTML = html;
+    }
+
+    /* ================================================================
+       弹窗逻辑
+       ================================================================ */
+    function openModal(title) {
+      var modal = document.getElementById("detail-modal");
+      document.getElementById("modal-title").textContent = title + " - 详细数据明细";
+      renderModalTable();
+      modal.classList.add("show");
+      document.body.style.overflow = "hidden";
+    }
+
+    function closeModal() {
+      var modal = document.getElementById("detail-modal");
+      modal.classList.remove("show");
+      document.body.style.overflow = "";
+    }
+
+    function renderModalTable() {
+      var dims = ["1月","2月","3月","4月","5月","6月","7月","8月","9月","10月","11月","12月",
+                  "Q1季度","Q2季度","Q3季度","Q4季度","上半年","下半年","全年累计"];
+      var count = randomNum(5, 10);
+      var used = [], rows = [];
+      for (var i = 0; i < count; i++) {
+        var dim;
+        do { dim = dims[randomNum(0, dims.length - 1)]; }
+        while (used.indexOf(dim) !== -1 && used.length < dims.length);
+        used.push(dim);
+        var plan = randomNum(5000, 50000);
+        var actual = randomNum(4000, 55000);
+        rows.push({ dim: dim, plan: plan, actual: actual,
+                    rate: Math.round((actual / plan) * 100),
+                    yoy: randomNum(-25, 35) });
+      }
+      var tbody = document.getElementById("modal-tbody");
+      var html = "";
+      rows.forEach(function(r) {
+        var rateClass = r.rate >= 95 ? "rate-high" : "rate-low";
+        var yoyClass  = r.yoy >= 0 ? "yoy-up" : "yoy-down";
+        var yoySym    = r.yoy >= 0 ? "↑" : "↓";
+        html += "<tr><td class='col-index'>" + (rows.indexOf(r) + 1) + "</td>" +
+                "<td class='col-name'>" + r.dim + "</td>" +
+                "<td class='col-plan'>" + formatNumber(r.plan) + "</td>" +
+                "<td class='col-actual'>" + formatNumber(r.actual) + "</td>" +
+                "<td class='col-rate'><span class='" + rateClass + "'>" + r.rate + "%</span></td>" +
+                "<td class='col-yoy'><span class='" + yoyClass + "'>" + yoySym + Math.abs(r.yoy) + "%</span></td></tr>";
+      });
+      var tPlan = rows.reduce(function(s, r) { return s + r.plan; }, 0);
+      var tAct  = rows.reduce(function(s, r) { return s + r.actual; }, 0);
+      var avgR  = Math.round((tAct / tPlan) * 100);
+      var avgY  = Math.round(rows.reduce(function(s, r) { return s + r.yoy; }, 0) / rows.length);
+      var rateC = avgR >= 95 ? "rate-high" : "rate-low";
+      var yoyC  = avgY >= 0 ? "yoy-up" : "yoy-down";
+      var yoyS  = avgY >= 0 ? "↑" : "↓";
+      html += "<tr class='summary-row'><td colspan='2'>汇总</td>" +
+              "<td class='col-plan'>" + formatNumber(tPlan) + "</td>" +
+              "<td class='col-actual'>" + formatNumber(tAct) + "</td>" +
+              "<td class='col-rate'><span class='" + rateC + "'>" + avgR + "%</span></td>" +
+              "<td class='col-yoy'><span class='" + yoyC + "'>" + yoyS + Math.abs(avgY) + "%</span></td></tr>";
+      tbody.innerHTML = html;
+    }
+
+    /* ================================================================
+       初始化
+       ================================================================ */
+    if (typeof echarts !== "undefined") {
+      buildList("list-contrib", "orange");
+      buildList("list-volume", "green");
+      renderKpiCards();
+      renderSatCards("profit");
+      initCharts();
+      setupKpiClickHandlers();
+      setupTimeFilterHandlers();
+
+      // 绑定所有可点击卡片 → 弹窗
+      document.querySelectorAll("[data-title]").forEach(function(el) {
+        el.addEventListener("click", function() {
+          openModal(el.dataset.title);
+        });
+      });
+
+      document.querySelector(".close-btn").addEventListener("click", closeModal);
+      document.getElementById("detail-modal").addEventListener("click", function(e) {
+        if (e.target === this) closeModal();
+      });
+      document.addEventListener("keydown", function(e) {
+        if (e.key === "Escape") closeModal();
+      });
+    }
+  </script>
+</body>
+</html>

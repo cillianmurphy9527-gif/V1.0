@@ -1,0 +1,12 @@
+{
+  "ignore_dirs": [
+    ".git",
+    ".next",
+    "node_modules",
+    ".DS_Store",
+    "dist",
+    "build",
+    ".prisma",
+    "coverage"
+  ]
+}

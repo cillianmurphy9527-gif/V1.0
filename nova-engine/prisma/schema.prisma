@@ -1,0 +1,760 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id               String    @id @default(uuid())
+  phone            String?   @unique
+  phoneVerified    DateTime?
+  email            String?   @unique // 用于 NextAuth
+  password         String? // 用于 NextAuth
+  companyName      String
+  name             String? // 用户名（联系人姓名）
+  image            String? // 头像 URL
+  industry         String? // 所属行业
+  website          String? // 公司官网
+  businessDesc     String? // 业务描述
+  ragContext       String?
+  credits          Int       @default(0)
+  addonCredits     Int       @default(0) // 增值服务算力包余额
+  extraDomains     Int       @default(0) // 额外购买的域名数量
+  referralCode     String?   @unique // 专属邀请码
+  referredById     String? // 推荐人ID
+  subscriptionTier String // STARTER, PRO, MAX, TRIAL
+  features         Json // {"canUseInbox": true, "aiScoring": true}
+  role             String    @default("USER") // 用户角色: USER | ADMIN
+  adminRole        String? // 约定只存入 "SUPER_ADMIN", "FINANCE", "OPS" 等字符串
+  trialEndsAt      DateTime? // 7天试用到期时间（注册时自动设置）
+
+  // ─── 配额核销字段 ──────────────────────────────────
+  tokenBalance    Int       @default(0) // 剩余算力（tokens）
+  monthlySearches Int       @default(0) // 本月已搜索次数
+  ragFileCount    Int       @default(0) // 已解析知识库文件数
+  monthlyResetAt  DateTime? // 本月配额重置时间
+
+  // ─── 合规发信与风控字段 ──────────────────────────────
+  bounceCount        Int     @default(0) // 退信数量（累计）
+  isSendingSuspended Boolean @default(false) // 是否因退信率过高被暂停发信
+  unsubscribed       Boolean @default(false) // 用户主动退订，不再接收任何邮件
+
+  // ─── 防薅羊毛与反欺诈字段 ────────────────────────────
+  registerIp        String? // 注册时的 IP 地址
+  deviceFingerprint String? // 设备指纹
+
+  // ─── 三道锁导出计费字段 ──────────────────────────────
+  planType        String @default("FREE") // 套餐类型：FREE(免费/试运营), GROWTH(增长版), FLAGSHIP(旗舰版)
+  exportCredits   Int    @default(0) // 商城购买的导出额度余额
+  usedFreeExports Int    @default(0) // 本月已使用的免费导出额度（仅旗舰版）
+
+  // ─── 线索库导出额度 ─────────────────────────────────
+  exportQuota Int @default(50) // 线索导出额度（默认赠送50条）
+
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  domains             Domain[]
+  campaigns           Campaign[]
+  threads             EmailThread[]
+  notifications       Notification[]
+  orders              Order[]
+  coupons             Coupon[] // 优惠券卡包
+  knowledgeBases      KnowledgeBase[]
+  tickets             Ticket[]             @relation("UserTickets")
+  adminTickets        Ticket[]             @relation("AdminTickets")
+  referredBy          User?                @relation("Referrals", fields: [referredById], references: [id])
+  referrals           User[]               @relation("Referrals")
+  systemNotifications SystemNotification[]
+  broadcastMessages   BroadcastMessage[]
+  dismissedBroadcasts DismissedBroadcast[]
+  deviceFingerprints  DeviceFingerprint[]
+  sendingLogs         SendingLog[]
+  wallet              Wallet?
+  userAssets          UserAsset[]
+  siteMessages        SiteMessage[]
+  novaTasks           NovaTask[]
+  deliveryLogs        DeliveryLog[]
+  userLeads           UserLead[]
+}
+
+// ─── Nova 战术配置任务（Dashboard 战术面板持久化）────────────────
+enum NovaTaskStatus {
+  IDLE
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+model NovaTask {
+  id             String         @id @default(uuid())
+  userId         String
+  targetCountry  String
+  targetIndustry String
+  decisionMaker  String
+  pitch          String
+  status         NovaTaskStatus @default(IDLE)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  deliveryLogs DeliveryLog[]
+
+  @@index([userId])
+  @@index([status])
+}
+
+model Wallet {
+  id           String   @id @default(uuid())
+  userId       String   @unique
+  emailCredits Int      @default(0)
+  leadCredits  Int      @default(0)
+  aiTokens     Int      @default(0)
+  updatedAt    DateTime @updatedAt
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model UserAsset {
+  id         String   @id @default(uuid())
+  userId     String
+  assetType  String // 如 TEMPLATE_MECHANICAL, STRATEGY_PACK
+  unlockedAt DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([assetType])
+}
+
+model SiteMessage {
+  id        String   @id @default(uuid())
+  userId    String
+  type      String   @default("NORMAL") // 约定只存入 "NORMAL", "FORCE_ALERT" 等字符串
+  title     String
+  content   String
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@index([type])
+}
+
+model Domain {
+  id             String    @id @default(uuid())
+  userId         String
+  domainName     String
+  status         String // ACTIVE, BANNED, PENDING_DNS
+  dailySentCount Int       @default(0)
+  warmupEnabled  Boolean   @default(false) // 是否启用预热
+  warmupDay      Int       @default(0) // 预热第几天（0 = 未启用）
+  warmupScore    Int       @default(0) // 预热信誉分 (0-100)
+  isReady        Boolean   @default(false) // 是否已达标可安全发信
+  dailyLimit     Int       @default(20) // 预热期间每日上限
+  sentToday      Int       @default(0) // 今日已发送数
+  lastSentAt     DateTime? // 最后发送时间
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Campaign {
+  id                String        @id @default(uuid())
+  userId            String
+  name              String
+  systemPrompt      String
+  status            String // IDLE, RUNNING, PAUSED_OUT_OF_CREDITS, PAUSED_NO_DOMAINS, COMPLETED, STOPPED
+  estimatedLeads    Int           @default(0) // 预估触达数量
+  tokensPerLead     Int           @default(100) // 每个线索消耗的 Token
+  totalTokensNeeded Int           @default(0) // 本次任务总需 Token
+  warmupEnabled     Boolean       @default(false) // 是否启用域名预热
+  dailyLimit        Int           @default(0) // 每日发信上限（0 = 无限制）
+  config            Json? // 活动扩展配置（原 SQLite 下曾用 String 存 JSON）
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  user              User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  leads             Lead[]
+  agentSession      AgentSession?
+}
+
+model Lead {
+  id          String   @id @default(uuid())
+  campaignId  String
+  email       String
+  websiteData String?
+  aiScore     Int?
+  status      String // PENDING, FILTERED_LOW_INTENT, QUEUED, SENT, BOUNCED, UNSUBSCRIBED, REPLIED
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  campaign    Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+}
+
+model EmailThread {
+  id          String         @id @default(uuid())
+  userId      String
+  targetEmail String // 收件人邮箱
+  targetName  String? // 收件人姓名
+  subject     String // 邮件主题
+  status      String         @default("PENDING") // PENDING, REPLIED, CLOSED
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  user        User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages    EmailMessage[]
+}
+
+model EmailMessage {
+  id         String      @id @default(uuid())
+  threadId   String
+  from       String // 发件人邮箱
+  to         String // 收件人邮箱
+  subject    String // 邮件主题
+  body       String // 邮件正文
+  sentAt     DateTime    @default(now()) // 发送时间
+  isFromUser Boolean     @default(false) // 是否是用户发送的
+  createdAt  DateTime    @default(now())
+  thread     EmailThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  type      String // NEW_REPLY, SYSTEM_ALERT
+  content   String
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Order {
+  id              String  @id @default(uuid())
+  userId          String
+  tradeNo         String? @unique // 订单流水号（唯一）
+  amount          Float // 订单金额
+  plan            String // 套餐名称: STARTER, PRO, MAX
+  orderType       String // SUBSCRIPTION, ADDON
+  // ─── 订单主状态（完整状态机）─────────────────────────
+  // PENDING          - 未付款：用户点击购买但未完成支付
+  // PAID             - 已付款：支付网关回调成功
+  // FAILED           - 支付失败：网关返回失败或超时
+  // CANCELED         - 已取消：未付款订单超时或主动取消
+  // REFUNDED         - 已退款：资金已原路退回（终态）
+  status          String // PENDING, PAID, FAILED, CANCELED, REFUNDED
+  // ─── 退款子状态（独立追踪退款流程）─────────────────────
+  // NONE             - 无退款申请（默认）
+  // REQUESTED        - 退款审核中：用户提交了退款申请
+  // APPROVED         - 管理员已批准，等待资金到账
+  // REJECTED         - 退款被驳回：管理员拒绝，订单依然有效
+  // COMPLETED        - 退款流程完全结束（资金已到账确认）
+  refundStatus    String  @default("NONE") // NONE, REQUESTED, APPROVED, REJECTED, COMPLETED
+  refundReason    String? // 退款原因（用户申请时填写）
+  rejectReason    String? // 驳回原因（管理员拒绝时填写）
+  paymentIntentId String? // 支付网关的真实交易流水号（用于原路退款，如 Stripe PaymentIntent ID 或支付宝/微信流水号）
+  receiptSent     Boolean @default(false) // 是否已发送付款凭证
+
+  // ─── 配额消耗记录 ──────────────────────────────────
+  tokensAllocated   Int @default(0) // 本订单分配的算力
+  searchesAllocated Int @default(0) // 本订单分配的搜索次数
+  ragFilesAllocated Int @default(0) // 本订单分配的知识库文件数
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+  @@index([refundStatus])
+}
+
+// 优惠券卡包系统 - 彻底替代现金佣金/提现机制
+model Coupon {
+  id                String    @id @default(uuid())
+  userId            String // 优惠券持有者
+  discountAmount    Int // 减免金额（整数，单位：元）
+  isUsed            Boolean   @default(false) // 是否已使用
+  sourceDescription String // 来源描述：如"邀请用户138****1234购买专业版奖励"
+  validUntil        DateTime // 有效期（动态计算：¥50=90天，¥150=30天，¥300=14天）
+  usedAt            DateTime? // 使用时间
+  usedOrderId       String? // 使用该优惠券的订单ID
+  createdAt         DateTime  @default(now())
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ============================================
+// RAG 知识库模型
+// ============================================
+
+model KnowledgeBase {
+  id            String          @id @default(uuid())
+  userId        String
+  name          String // 知识库名称
+  description   String? // 描述
+  fileType      String // PDF | WORD | LINK
+  fileUrl       String? // 阿里云 OSS 文件 URL
+  sourceUrl     String? // 公司官网链接
+  parseStatus   String          @default("PENDING") // PENDING | PARSING | READY | FAILED
+  chunkCount    Int             @default(0) // 语义切片数量
+  vectorizedAt  DateTime? // 向量化完成时间
+  fileSizeBytes Int? // 文件大小（字节）
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  user          User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  chunks        DocumentChunk[]
+}
+
+model DocumentChunk {
+  id              String        @id @default(uuid())
+  knowledgeBaseId String
+  content         String // 原始切片文本
+  embedding       Json? // 向量数组（预留，生产可迁 pgvector）
+  chunkIndex      Int // 切片序号
+  tokenCount      Int           @default(0)
+  createdAt       DateTime      @default(now())
+  knowledgeBase   KnowledgeBase @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+}
+
+// ============================================
+// 工单系统
+// ============================================
+
+model Ticket {
+  id         String    @id @default(uuid())
+  userId     String // 提交工单的用户
+  adminId    String? // 处理工单的管理员
+  title      String
+  type       String // BUG | BILLING | FEATURE | GENERAL
+  status     String    @default("OPEN") // OPEN | IN_PROGRESS | RESOLVED | CLOSED
+  priority   String    @default("NORMAL") // LOW | NORMAL | HIGH | URGENT
+  messages   Json // 对话记录 [{role, content, createdAt}]
+  resolvedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  user       User      @relation("UserTickets", fields: [userId], references: [id], onDelete: Cascade)
+  admin      User?     @relation("AdminTickets", fields: [adminId], references: [id])
+}
+
+// ============================================
+// 系统通知与站内信
+// ============================================
+
+model SystemNotification {
+  id        String   @id @default(uuid())
+  userId    String // 接收用户
+  title     String // 通知标题
+  content   String // 富文本内容
+  type      String   @default("SYSTEM") // SYSTEM | REFUND | TICKET | PURCHASE | REGISTRATION
+  isRead    Boolean  @default(false)
+  actionUrl String? // 点击后跳转的 URL
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+}
+
+model BroadcastMessage {
+  id          String    @id @default(uuid())
+  adminId     String // 发送管理员
+  title       String // 广播标题
+  content     String // 富文本内容
+  targetPlan  String? // 目标套餐（null = 全部用户）
+  sentCount   Int       @default(0) // 已发送数量
+  status      String    @default("DRAFT") // DRAFT | SENT | SCHEDULED
+  scheduledAt DateTime? // 定时发送时间
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  admin       User      @relation(fields: [adminId], references: [id])
+}
+
+// 用户已忽略的广播记录（用于持久化删除/已读操作）
+model DismissedBroadcast {
+  id          String   @id @default(uuid())
+  userId      String // 用户ID
+  broadcastId String // 广播消息ID
+  isRead      Boolean  @default(false) // 是否已读
+  isDismissed Boolean  @default(false) // 是否已删除
+  createdAt   DateTime @default(now())
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, broadcastId]) // 同一用户对同一广播只有一条记录
+  @@index([userId])
+}
+
+// ============================================
+// 系统配置与 CMS
+// ============================================
+
+model SystemSettings {
+  id          String   @id @default(uuid())
+  key         String   @unique // 配置键（如 "pricing.starter.description"）
+  value       Json // 配置值（结构化 JSON）
+  category    String // 分类（pricing | faq | features | general）
+  description String? // 配置说明
+  updatedBy   String? // 最后修改者 ID
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([category])
+}
+
+// ============================================
+// 财务统计与成本追踪
+// ============================================
+
+model FinancialMetrics {
+  id   String   @id @default(uuid())
+  date DateTime // 统计日期
+
+  // 收入指标
+  totalRevenue Float @default(0) // 总营收
+  mrr          Float @default(0) // 月度经常性收入
+  starterSales Int   @default(0) // 入门版销售数
+  proSales     Int   @default(0) // 专业版销售数
+  maxSales     Int   @default(0) // 旗舰版销售数
+
+  // 成本指标
+  totalTokens   Int   @default(0) // 消耗的总 tokens
+  totalEmails   Int   @default(0) // 发送的总邮件数
+  estimatedCost Float @default(0) // 预估成本
+
+  // 利润指标
+  grossProfit  Float @default(0) // 毛利润
+  profitMargin Float @default(0) // 利润率 (%)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([date])
+}
+
+// ============================================
+// Agent 监控配置
+// ============================================
+
+model AgentConfig {
+  id              String    @id @default(uuid())
+  name            String // Agent 名称
+  type            String // 类型（api | queue | service）
+  endpoint        String? // API 端点
+  status          String    @default("ACTIVE") // ACTIVE | INACTIVE | ERROR
+  lastHealthCheck DateTime? // 最后健康检查时间
+  metrics         Json // 指标数据
+  config          Json // 配置
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}
+
+// ============================================
+// 防薅羊毛与合规发信机制
+// ============================================
+
+// 设备指纹记录 - 防止同一设备多次领取试用
+model DeviceFingerprint {
+  id           String   @id @default(uuid())
+  userId       String // 关联用户
+  ipAddress    String // IP 地址
+  fingerprint  String // 设备指纹（浏览器特征哈希）
+  userAgent    String? // User-Agent
+  trialClaimed Boolean  @default(false) // 是否已领取试用
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([ipAddress])
+  @@index([fingerprint])
+  @@index([trialClaimed])
+}
+
+// IP 黑名单 - 记录恶意 IP
+model IpBlacklist {
+  id        String    @id @default(uuid())
+  ipAddress String    @unique // IP 地址
+  reason    String // 封禁原因：ABUSE | FRAUD | SPAM
+  blockedAt DateTime  @default(now())
+  expiresAt DateTime? // 封禁到期时间（null = 永久）
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([ipAddress])
+}
+
+// IP 注册日志 - 记录每个 IP 的注册次数
+model IpRegistrationLog {
+  id           String   @id @default(uuid())
+  ipAddress    String // IP 地址
+  userId       String // 注册用户 ID
+  userEmail    String // 用户邮箱
+  registeredAt DateTime @default(now())
+
+  @@unique([ipAddress, userId])
+  @@index([ipAddress])
+  @@index([userId])
+}
+
+// 退订黑名单 - 记录已退订的邮箱
+model UnsubscribeList {
+  id             String   @id @default(uuid())
+  email          String   @unique // 退订邮箱
+  reason         String? // 退订原因
+  unsubscribedAt DateTime @default(now())
+  source         String   @default("USER_REQUEST") // USER_REQUEST | BOUNCE | COMPLAINT
+  createdAt      DateTime @default(now())
+
+  @@index([email])
+}
+
+// ============================================
+// 发信流水日志
+// ============================================
+
+// 发信记录表 - 记录每一封邮件的发送详情
+model SendingLog {
+  id           String    @id @default(uuid())
+  userId       String // 发送用户
+  campaignId   String? // 关联活动（可选）
+  recipient    String // 收件人邮箱
+  fromDomain   String // 使用的发信域名
+  fromEmail    String // 发件人邮箱
+  subject      String // 邮件主题
+  status       String // SENT | BOUNCED | OPENED | CLICKED | REPLIED | UNSUBSCRIBED
+  messageId    String? // 邮件服务商返回的 Message ID
+  errorMessage String? // 错误信息（如果发送失败）
+  metadata     Json? // 扩展元数据（事件、服务商原始载荷等）
+  sentAt       DateTime  @default(now()) // 发送时间
+  openedAt     DateTime? // 打开时间
+  clickedAt    DateTime? // 点击时间
+  repliedAt    DateTime? // 回复时间
+  createdAt    DateTime  @default(now())
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([campaignId])
+  @@index([status])
+  @@index([sentAt])
+}
+
+// ============================================
+// 验证码表（注册短信验证码）
+// ============================================
+
+model VerificationCode {
+  id        String   @id @default(uuid())
+  phone     String // 手机号
+  code      String // 6 位验证码
+  used      Boolean  @default(false) // 是否已使用
+  expiresAt DateTime // 过期时间
+  createdAt DateTime @default(now())
+
+  @@index([phone])
+  @@index([phone, code])
+}
+
+// ============================================
+// 算力交易与计费
+// ============================================
+
+// Token 交易记录 - 记录每次算力扣减
+model TokenTransaction {
+  id            String   @id @default(uuid())
+  userId        String // 用户 ID
+  campaignId    String? // 关联活动（可选）
+  amount        Int // 扣减数量（负数表示扣减）
+  reason        String // 扣减原因：CAMPAIGN_START, EMAIL_SENT, AI_USAGE, REFUND
+  balanceBefore Int // 扣减前余额
+  balanceAfter  Int // 扣减后余额
+  status        String   @default("COMPLETED") // PENDING, COMPLETED, FAILED, REVERSED
+  createdAt     DateTime @default(now())
+
+  @@index([userId])
+  @@index([campaignId])
+  @@index([createdAt])
+}
+
+// ============================================
+// Agent 运行状态与会话
+// ============================================
+
+// Agent 会话 - 记录每次 Agent 运行的状态
+model AgentSession {
+  id                String    @id @default(uuid())
+  userId            String // 用户 ID
+  campaignId        String    @unique // 关联活动（一对一）
+  status            String // IDLE, RUNNING, PAUSED, COMPLETED, STOPPED, ERROR
+  estimatedLeads    Int // 预估触达数量
+  totalTokensNeeded Int // 总需 Token
+  tokensUsed        Int       @default(0) // 已使用 Token
+  emailsSent        Int       @default(0) // 已发送邮件数
+  emailsBounced     Int       @default(0) // 退信数
+  startedAt         DateTime? // 启动时间
+  pausedAt          DateTime? // 暂停时间
+  resumedAt         DateTime? // 恢复时间
+  completedAt       DateTime? // 完成时间
+  errorMessage      String? // 错误信息
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  campaign          Campaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+}
+
+// ============================================
+// LeadPilot 线索中枢 - 私有线索库与扣费系统
+// ============================================
+
+// ─── 私有线索缓存表 ──────────────────────────────────
+model LeadsCache {
+  id           String   @id @default(uuid())
+  userId       String // 线索所属用户
+  domain       String // 公司域名（索引加速查询）
+  companyName  String? // 公司名称
+  contactEmail String   @unique // 联系人邮箱（全局唯一）
+  jobTitle     String? // 职位
+  isValid      Boolean  @default(true) // 是否为有效线索
+  createdAt    DateTime @default(now())
+
+  @@index([userId])
+  @@index([domain])
+  @@index([isValid])
+}
+
+// ─── 用户额度表（独立配额追踪）──────────────────────────
+// 该表独立于 User 表，专门用于 LeadPilot 线索服务的配额管理
+// 
+// 套餐定价与额度对照表：
+// ┌─────────────┬────────┬─────────────┬─────────────┐
+// │   套餐       │  价格  │  线索上限    │  算力水箱    │
+// ├─────────────┼────────┼─────────────┼─────────────┤
+// │ BASIC       │  ¥299  │   300       │   50,000   │
+// │ PRO         │  ¥799  │   1,000     │   200,000  │
+// │ ENTERPRISE  │ ¥1,999 │   3,000     │   500,000  │
+// └─────────────┴────────┴─────────────┴─────────────┘
+model UserQuota {
+  id           String   @id @default(uuid())
+  userId       String   @unique
+  tier         String   @default("BASIC") // BASIC(¥299) | PRO(¥799) | ENTERPRISE(¥1999)
+  leadsBalance Int      @default(0) // 线索余额
+  leadsLimit   Int      @default(300) // 线索上限: BASIC=300, PRO=1000, ENTERPRISE=3000
+  tokensLimit  Int      @default(50000) // 算力上限: BASIC=50000, PRO=200000, ENTERPRISE=500000
+  apiCostTotal Float    @default(0) // 本月累计 API 消耗成本
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([userId])
+  @@index([tier])
+}
+
+// ─── Nova 异步任务状态表（执行进度 / 日志）──────────────────
+// 用于追踪 Nova 引擎的异步搜索/处理任务
+model NovaJob {
+  id              String    @id @default(uuid())
+  userId          String // 任务所属用户
+  status          String    @default("PENDING") // PENDING | RUNNING | PAUSED | COMPLETED | FAILED
+  jobType         String // SEARCH | ENRICH | VALIDATE
+  totalTargets    Int       @default(0) // 目标总数
+  currentProgress Int       @default(0) // 当前进度
+  leadsFound      Int       @default(0) // 发现的线索数
+  leadsSaved      Int       @default(0) // 已保存的线索数
+  errorMessage    String? // 错误信息
+  logs            Json      @default("[]") // 运行日志数组
+  startedAt       DateTime? // 开始时间
+  completedAt     DateTime? // 完成时间
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([userId])
+  @@index([status])
+}
+
+// ============================================
+// 固定成本管理（动态可配置摊销）
+// ============================================
+
+model FixedCost {
+  id           String   @id @default(uuid())
+  name         String // 成本名称，如：Vercel 服务器、Apollo 数据源
+  category     String // 分类枚举：INFRA（云基建）| DATA（数据源）| PAYMENT（支付通道）| OTHER（其他）
+  amount       Float // 采购金额（元）
+  billingCycle String // 计费周期枚举：MONTHLY（月付）| YEARLY（年付）
+  vendor       String? // 供应商名称，如：Vercel、阿里云、Apollo
+  notes        String? // 备注说明
+  isActive     Boolean  @default(true) // 是否启用（停用后不计入成本）
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([category])
+  @@index([isActive])
+}
+
+// ============================================
+// 投递流水 (Delivery Log)
+// ============================================
+
+model DeliveryLog {
+  id             String  @id @default(cuid())
+  userId         String
+  taskId         String?
+  leadId         String? // 关联的 UserLead（如有）
+  recipientEmail String
+  senderDomain   String
+  subject        String
+  status         String  @default("SENT") // SENT | DELIVERED | OPENED | CLICKED | REPLIED | BOUNCED | FAILED
+
+  // ─── 高价值情报字段 ──────────────────────────────
+  companyName  String? // 公司名称
+  contactName  String? // 联系人姓名
+  openCount    Int     @default(0) // 邮件被打开次数
+  clickCount   Int     @default(0) // 链接被点击次数
+  errorMessage String? // 发送失败/退信的具体原因
+
+  sentAt    DateTime @default(now())
+  createdAt DateTime @default(now())
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  novaTask NovaTask? @relation(fields: [taskId], references: [id])
+  lead     UserLead? @relation(fields: [leadId], references: [id])
+
+  @@index([userId])
+  @@index([taskId])
+  @@index([leadId])
+  @@index([status])
+  @@index([sentAt])
+  @@index([companyName])
+}
+
+// ============================================
+// 线索库 (UserLead) — 直接归属用户的独立线索
+// ============================================
+
+model UserLead {
+  id          String  @id @default(uuid())
+  userId      String
+  companyName String
+  contactName String?
+  jobTitle    String?
+  country     String?
+  email       String?  // 预留字段，Google 挖掘时暂不填入
+  source      String  @default("NOVA") // NOVA | IMPORT | CAMPAIGN
+  isUnlocked  Boolean @default(false) // 是否已解锁（解锁后邮箱明文可见）
+
+  // 高价值情报字段
+  website   String?
+  linkedIn  String?
+  phone     String?
+  industry  String?
+  aiSummary String? // AI 客户画像 / 摘要
+
+  createdAt DateTime @default(now())
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deliveryLogs DeliveryLog[]
+
+  @@unique([userId, email]) // 防止同一用户重复入库相同邮箱
+  @@index([userId])
+  @@index([country])
+  @@index([createdAt])
+  @@index([isUnlocked])
+}
