@@ -1,9 +1,10 @@
 "use client"
 
+import { useState, useEffect } from "react"
 import { motion } from "framer-motion"
-import { Crown, Rocket, CheckCircle2, XCircle, Sparkles } from "lucide-react"
+import { Crown, Rocket, CheckCircle2, XCircle, Sparkles, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { PLANS } from "@/config/pricing"
+import { PLANS as STATIC_PLANS } from "@/config/pricing"
 
 interface PricingCardsProps {
   currentPlan?: string | null
@@ -19,46 +20,50 @@ export function PricingCards({
   ctaText = '开始使用'
 }: PricingCardsProps) {
   
-  const getPlanIndex = (planId: string) => {
-    return PLANS.findIndex(p => p.id === planId)
-  }
+  // 🚀 1. 接管状态，把死数据变成活数据
+  const [livePlans, setLivePlans] = useState<typeof STATIC_PLANS>(STATIC_PLANS)
+  const [loading, setLoading] = useState(true)
 
+  // 🚀 2. 每次加载强制向后台要最新价格
+  useEffect(() => {
+    const cacheBuster = `?t=${new Date().getTime()}`;
+    fetch('/api/public/products' + cacheBuster, {
+      cache: 'no-store',
+      headers: { 'Pragma': 'no-cache' }
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (data.success && data.data?.subscriptions?.length > 0) {
+          const updatedPlans = STATIC_PLANS.map(staticPlan => {
+            const apiMatch = data.data.subscriptions.find(
+              (apiPlan: any) => apiPlan.id === staticPlan.id || apiPlan.name === staticPlan.name
+            );
+            if (apiMatch) {
+              return {
+                ...staticPlan,
+                price: apiMatch.price, // 💰 用后台 CMS 的价格覆盖前端死价格！
+              }
+            }
+            return staticPlan;
+          });
+          setLivePlans(updatedPlans);
+        }
+        setLoading(false);
+      })
+      .catch(err => {
+        console.error("拉取实时定价失败:", err);
+        setLoading(false);
+      });
+  }, []);
+
+  const getPlanIndex = (planId: string) => livePlans.findIndex(p => p.id === planId)
   const currentPlanIndex = currentPlan ? getPlanIndex(currentPlan) : -1
 
-  const getButtonConfig = (plan: typeof PLANS[0], planIndex: number) => {
-    // 未登录或没有当前套餐：显示默认 CTA
-    if (!currentPlan) {
-      return {
-        text: plan.ctaText || ctaText,
-        variant: plan.badge ? 'featured' : plan.id === 'MAX' ? 'premium' : 'default',
-        disabled: false,
-      }
-    }
-
-    // 当前套餐：续费
-    if (planIndex === currentPlanIndex) {
-      return {
-        text: '续费当前套餐',
-        variant: 'current',
-        disabled: false,
-      }
-    }
-
-    // 升级套餐
-    if (planIndex > currentPlanIndex) {
-      return {
-        text: `升级至${plan.name}`,
-        variant: plan.id === 'MAX' ? 'premium' : 'upgrade',
-        disabled: false,
-      }
-    }
-
-    // 降级套餐
-    return {
-      text: `降级至${plan.name}`,
-      variant: 'downgrade',
-      disabled: false,
-    }
+  const getButtonConfig = (plan: typeof livePlans[0], planIndex: number) => {
+    if (!currentPlan) return { text: plan.ctaText || ctaText, variant: plan.badge ? 'featured' : plan.id === 'MAX' ? 'premium' : 'default', disabled: false }
+    if (planIndex === currentPlanIndex) return { text: '续费当前套餐', variant: 'current', disabled: false }
+    if (planIndex > currentPlanIndex) return { text: `升级至${plan.name}`, variant: plan.id === 'MAX' ? 'premium' : 'upgrade', disabled: false }
+    return { text: `降级至${plan.name}`, variant: 'downgrade', disabled: false }
   }
 
   const getButtonStyles = (variant: string) => {
@@ -75,8 +80,6 @@ export function PricingCards({
 
   const handlePlanClick = (planId: string, planIndex: number) => {
     if (!onSelectPlan) return
-
-    // 降级需要二次确认
     if (currentPlan && planIndex < currentPlanIndex) {
       if (confirm('降级将在下个计费周期生效，当前周期仍可使用现有功能。确认降级？')) {
         onSelectPlan(planId)
@@ -86,9 +89,15 @@ export function PricingCards({
     }
   }
 
+  // 🚀 3. 等待后台价格时的加载动画
+  if (loading) {
+    return <div className="flex justify-center py-20"><Loader2 className="w-8 h-8 text-slate-500 animate-spin" /></div>
+  }
+
   return (
     <div className="grid md:grid-cols-3 gap-8 max-w-7xl mx-auto items-center">
-      {PLANS.map((plan, idx) => {
+      {/* 🚀 4. 使用 livePlans 循环，而不是旧的 PLANS！ */}
+      {livePlans.map((plan, idx) => {
         const isFeatured = plan.badge === '主推'
         const isCurrent = plan.id === currentPlan
         const buttonConfig = getButtonConfig(plan, idx)
@@ -102,7 +111,6 @@ export function PricingCards({
             whileHover={{ y: isFeatured ? -8 : -4, scale: isFeatured ? 1.02 : 1 }}
             className={`relative ${isFeatured ? 'md:scale-105' : ''}`}
           >
-            {/* 当前方案标识 */}
             {isCurrent && (
               <div className="absolute -top-5 left-1/2 -translate-x-1/2 z-10">
                 <div className="bg-gradient-to-r from-emerald-400 to-emerald-500 text-white px-6 py-2 rounded-full text-sm font-bold shadow-lg flex items-center gap-2">
@@ -111,7 +119,6 @@ export function PricingCards({
               </div>
             )}
 
-            {/* 最受欢迎标识 */}
             {isFeatured && !isCurrent && (
               <div className="absolute -top-5 left-1/2 -translate-x-1/2 z-10">
                 <div className="bg-gradient-to-r from-yellow-400 to-orange-400 text-slate-900 px-6 py-2 rounded-full text-sm font-bold shadow-lg flex items-center gap-2">
@@ -142,23 +149,13 @@ export function PricingCards({
                 <p className={`text-sm ${isFeatured ? 'text-blue-300/70' : 'text-slate-500'}`}>{plan.subtitle}</p>
               </div>
 
-              {/* 核心差异对比 */}
               {plan.id === 'PRO' && (
                 <div className="relative mb-6 p-4 bg-blue-500/10 border border-blue-500/20 rounded-xl">
                   <div className="text-xs font-bold text-blue-400 mb-3">✨ 专业版核心优势</div>
                   <ul className="text-xs text-blue-300 space-y-2">
-                    <li className="flex items-start gap-2">
-                      <CheckCircle2 className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-blue-400" />
-                      <span><strong>双核数据源</strong>：Google + LinkedIn 精准定位</span>
-                    </li>
-                    <li className="flex items-start gap-2">
-                      <CheckCircle2 className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-blue-400" />
-                      <span><strong>高并发发信</strong>：日发 5000+ 封，进箱率 94%+</span>
-                    </li>
-                    <li className="flex items-start gap-2">
-                      <CheckCircle2 className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-blue-400" />
-                      <span><strong>AI 意图打分</strong>：自动淘汰低质线索，节省成本</span>
-                    </li>
+                    <li className="flex items-start gap-2"><CheckCircle2 className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-blue-400" /><span><strong>双核数据源</strong>：Google + LinkedIn 精准定位</span></li>
+                    <li className="flex items-start gap-2"><CheckCircle2 className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-blue-400" /><span><strong>高并发发信</strong>：日发 5000+ 封，进箱率 94%+</span></li>
+                    <li className="flex items-start gap-2"><CheckCircle2 className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-blue-400" /><span><strong>AI 意图打分</strong>：自动淘汰低质线索，节省成本</span></li>
                   </ul>
                 </div>
               )}
@@ -166,23 +163,13 @@ export function PricingCards({
                 <div className="relative mb-6 p-4 bg-purple-500/10 border border-purple-500/20 rounded-xl">
                   <div className="text-xs font-bold text-purple-400 mb-3">🚀 旗舰版核心优势</div>
                   <ul className="text-xs text-purple-300 space-y-2">
-                    <li className="flex items-start gap-2">
-                      <CheckCircle2 className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-purple-400" />
-                      <span><strong>三核数据源</strong>：Google + LinkedIn + 自定义爬虫</span>
-                    </li>
-                    <li className="flex items-start gap-2">
-                      <CheckCircle2 className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-purple-400" />
-                      <span><strong>极速并发</strong>：日发 20000+ 封，3 域名轮换防封</span>
-                    </li>
-                    <li className="flex items-start gap-2">
-                      <CheckCircle2 className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-purple-400" />
-                      <span><strong>深度意图打分</strong>：0-100 精准评分，商机识别率 98%</span>
-                    </li>
+                    <li className="flex items-start gap-2"><CheckCircle2 className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-purple-400" /><span><strong>三核数据源</strong>：Google + LinkedIn + 自定义爬虫</span></li>
+                    <li className="flex items-start gap-2"><CheckCircle2 className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-purple-400" /><span><strong>极速并发</strong>：日发 20000+ 封，3 域名轮换防封</span></li>
+                    <li className="flex items-start gap-2"><CheckCircle2 className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-purple-400" /><span><strong>深度意图打分</strong>：0-100 精准评分，商机识别率 98%</span></li>
                   </ul>
                 </div>
               )}
               
-              {/* 价格显示 */}
               <div className="relative mb-8">
                 <div className="flex items-baseline gap-2 mb-2">
                   <span className={`font-bold ${isFeatured ? 'text-6xl bg-gradient-to-r from-blue-400 to-cyan-400 bg-clip-text text-transparent' : 'text-5xl text-white'}`}>
@@ -192,9 +179,8 @@ export function PricingCards({
                 </div>
               </div>
 
-              {/* 功能列表 */}
               <ul className="relative space-y-3 mb-8">
-                {plan.features.map(f => (
+                {plan.features.map((f:any) => (
                   <li key={f.label} className={`flex items-start gap-3 ${f.locked ? 'text-slate-500' : 'text-slate-300'}`}>
                     {f.locked
                       ? <XCircle className="w-5 h-5 text-slate-600 mt-0.5 flex-shrink-0" />
@@ -207,7 +193,6 @@ export function PricingCards({
                 ))}
               </ul>
 
-              {/* 动态按钮 */}
               {showCTA && (
                 <Button
                   onClick={() => handlePlanClick(plan.id, idx)}

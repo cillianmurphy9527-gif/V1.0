@@ -1,556 +1,292 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useState, useEffect } from "react"
 import { motion } from "framer-motion"
-import { 
-  Search,
-  MoreVertical,
-  User,
-  Gift,
-  TrendingUp,
-  Ban,
-  X
-} from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { useToast } from "@/components/ui/use-toast"
+import { Search, MoreVertical, ShieldAlert, Ban, Gift, UserCog, Activity } from "lucide-react"
 
-// 用户数据类型
-type User = {
-  id: string
-  email: string
-  phone: string
-  companyName: string
-  currentPlan: string
-  planColor: string
-  credits: number
-  registeredAt: string
-  isSendingSuspended?: boolean
-}
-
-export default function UsersPage() {
-  const { toast } = useToast()
-  const [searchQuery, setSearchQuery] = useState('')
-  const [selectedUser, setSelectedUser] = useState<User | null>(null)
-  const [showActionMenu, setShowActionMenu] = useState<string | null>(null)
-  const [showBanModal, setShowBanModal] = useState(false)
-  const [showGiftModal, setShowGiftModal] = useState(false)
-  const [showUpgradeModal, setShowUpgradeModal] = useState(false)
-  const [giftAmount, setGiftAmount] = useState('')
-  const [newPlan, setNewPlan] = useState('')
-
-  const [users, setUsers] = useState<User[]>([])
+export default function UsersManagementPage() {
+  const [users, setUsers] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [searchQuery, setSearchQuery] = useState('')
+  
+  // 终极复合弹窗状态
+  const [profileModalOpen, setProfileModalOpen] = useState(false)
+  const [selectedUser, setSelectedUser] = useState<any>(null)
+  const [auditData, setAuditData] = useState<any>(null)
+  const [auditLoading, setAuditLoading] = useState(false)
+  
+  // 快捷操作状态
+  const [giftAmount, setGiftAmount] = useState('')
 
-  const loadUsers = async () => {
-    setLoading(true)
+  useEffect(() => {
+    fetchUsers()
+  }, [])
+
+  const fetchUsers = async () => {
     try {
       const res = await fetch('/api/admin/users/list')
       const data = await res.json()
-      if (!res.ok) throw new Error(data?.error || '加载失败')
-      setUsers(data?.users || [])
-    } catch (e: any) {
-      toast({ title: '加载失败', description: e?.message || '无法加载用户列表', variant: 'destructive' })
-      setUsers([])
-    } finally {
+      setUsers(data.users || [])
+      setLoading(false)
+    } catch (e) {
+      console.error(e)
       setLoading(false)
     }
   }
 
-  useEffect(() => {
-    loadUsers()
-  }, [])
+  // 🚀 核心：打开详情并同步触发 X光机查账
+  const handleOpenProfile = async (user: any) => {
+    setSelectedUser(user);
+    setProfileModalOpen(true);
+    setAuditLoading(true);
+    setAuditData(null);
+    setGiftAmount(''); // 重置充值框
 
-  // 过滤用户
-  const filteredUsers = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase()
-    if (!q) return users
-    return users.filter(user =>
-      (user.email || '').toLowerCase().includes(q) ||
-      (user.phone || '').includes(searchQuery) ||
-      (user.companyName || '').includes(searchQuery)
-    )
-  }, [users, searchQuery])
-
-  // 查看资料
-  const handleViewProfile = (user: User) => {
-    toast({
-      title: user.companyName || '用户资料',
-      description: `${user.email || '—'} / ${user.phone || '—'}`,
-    })
-    setShowActionMenu(null)
-  }
-
-  // 赠送算力
-  const handleGiftCredits = async () => {
-    if (!selectedUser || !giftAmount) return
     try {
-      const res = await fetch('/api/admin/users/gift', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: selectedUser.id, amount: Number(giftAmount) }),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data?.error || '操作失败')
-      toast({ title: '✅ 已赠送算力', description: `用户：${selectedUser.email} +${Number(giftAmount).toLocaleString()} tokens` })
-      setShowGiftModal(false)
-      setSelectedUser(null)
-      setGiftAmount('')
-      await loadUsers()
-    } catch (e: any) {
-      toast({ title: '❌ 赠送失败', description: e?.message || '请稍后重试', variant: 'destructive' })
+      const res = await fetch(`/api/admin/users/${user.id}/stats`);
+      if (res.ok) {
+        const data = await res.json();
+        setAuditData(data);
+      }
+    } catch (err) {
+      console.error("查账失败", err);
+    } finally {
+      setAuditLoading(false);
     }
   }
 
-  // 调整套餐
-  const handleUpgradePlan = async () => {
-    if (!selectedUser || !newPlan) return
-    const tierMap: Record<string, string> = { '体验版': 'TRIAL', '入门版': 'STARTER', '专业版': 'PRO', '旗舰版': 'MAX', '企业版': 'MAX' }
-    const tier = tierMap[newPlan] || newPlan
+  // 动作：充值
+  const handleGift = async () => {
+    if (!selectedUser || !giftAmount) return;
     try {
-      const res = await fetch('/api/admin/users/upgrade-tier', {
+      await fetch(`/api/admin/users/${selectedUser.id}/action`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: selectedUser.id, tier }),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data?.error || '操作失败')
-      toast({ title: '✅ 套餐已更新', description: `用户：${selectedUser.email} → ${tier}` })
-      setShowUpgradeModal(false)
-      setSelectedUser(null)
-      setNewPlan('')
-      await loadUsers()
-    } catch (e: any) {
-      toast({ title: '❌ 更新失败', description: e?.message || '请稍后重试', variant: 'destructive' })
-    }
+        body: JSON.stringify({ action: 'gift', amount: Number(giftAmount) })
+      });
+      alert(`成功充值 ${giftAmount} 算力！`);
+      setGiftAmount('');
+      fetchUsers(); // 刷新列表
+      handleOpenProfile(selectedUser); // 刷新弹窗内数据
+    } catch (e) { console.error(e) }
   }
 
-  // 暂停/恢复发信
-  const handleSuspendSending = async () => {
-    if (!selectedUser) return
-    const next = !(selectedUser.isSendingSuspended ?? false)
+  // 动作：封禁
+  const handleBan = async () => {
+    if (!selectedUser || !confirm(`确定要彻底封禁 ${selectedUser.email} 并清空算力吗？`)) return;
     try {
-      const res = await fetch('/api/admin/users/suspend-sending', {
+      await fetch(`/api/admin/users/${selectedUser.id}/action`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: selectedUser.id, suspended: next }),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data?.error || '操作失败')
-      toast({ title: '✅ 已更新风控状态', description: next ? '已暂停该用户发信能力' : '已恢复该用户发信能力' })
-      setShowBanModal(false)
-      setSelectedUser(null)
-      await loadUsers()
-    } catch (e: any) {
-      toast({ title: '❌ 操作失败', description: e?.message || '请稍后重试', variant: 'destructive' })
-    }
+        body: JSON.stringify({ action: 'ban' })
+      });
+      alert('账号已封禁！');
+      setProfileModalOpen(false);
+      fetchUsers();
+    } catch (e) { console.error(e) }
   }
 
   return (
-    <div className="container mx-auto px-6 py-8">
-      {/* 页面标题 */}
-      <div className="mb-8">
-        <h1 className="text-4xl font-bold text-white mb-2">用户管理</h1>
-        <p className="text-slate-400">管理系统所有用户账号和权限</p>
-      </div>
-
-      {/* 搜索和统计 */}
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-4">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="搜索邮箱、手机号或公司名"
-              className="pl-10 pr-4 py-2 w-80 bg-slate-800/50 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            />
-          </div>
-          <div className="text-sm text-slate-400">
-            共 <span className="text-white font-bold">{users.length}</span> 个用户
-          </div>
+    <div className="p-6 text-white min-h-screen bg-[#0B1120]">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6">
+        <div>
+          <h1 className="text-2xl font-bold mb-1">用户管理</h1>
+          <p className="text-slate-400 text-sm">管理系统所有用户账号、资产审计与权限</p>
         </div>
       </div>
 
-      {/* 用户表格 */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="bg-slate-900/50 border border-slate-700 rounded-3xl overflow-hidden"
-      >
+      <div className="bg-slate-900/50 border border-slate-700 rounded-xl p-4 sm:p-6 shadow-xl">
+        <div className="flex justify-between items-center mb-6">
+          <div className="relative w-72">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+            <input
+              type="text"
+              placeholder="搜索邮箱或手机号..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 bg-slate-800/80 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-blue-500"
+            />
+          </div>
+          <div className="text-sm text-slate-400">共 {users.length} 个用户</div>
+        </div>
+
         <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-slate-700 bg-slate-800/50">
-                <th className="text-left py-4 px-6 text-sm font-semibold text-slate-400">用户</th>
-                <th className="text-left py-4 px-6 text-sm font-semibold text-slate-400">联系方式</th>
-                <th className="text-left py-4 px-6 text-sm font-semibold text-slate-400">当前套餐</th>
-                <th className="text-right py-4 px-6 text-sm font-semibold text-slate-400">算力余额</th>
-                <th className="text-right py-4 px-6 text-sm font-semibold text-slate-400">发信风控</th>
-                <th className="text-left py-4 px-6 text-sm font-semibold text-slate-400">注册时间</th>
-                <th className="text-left py-4 px-6 text-sm font-semibold text-slate-400">状态</th>
-                <th className="text-center py-4 px-6 text-sm font-semibold text-slate-400">操作</th>
+          <table className="w-full text-left text-sm whitespace-nowrap">
+            <thead className="bg-slate-800/40 text-slate-400 border-b border-slate-700">
+              <tr>
+                <th className="p-4 font-medium">用户邮箱</th>
+                <th className="p-4 font-medium">联系方式</th>
+                <th className="p-4 font-medium">当前套餐</th>
+                <th className="p-4 font-medium">算力余额</th>
+                <th className="p-4 font-medium">注册时间</th>
+                <th className="p-4 font-medium">状态</th>
+                <th className="p-4 font-medium text-center">操作</th>
               </tr>
             </thead>
             <tbody>
-              {loading ? (
-                <tr><td colSpan={8} className="py-12 text-center text-slate-400">加载中...</td></tr>
-              ) : filteredUsers.length === 0 ? (
-                <tr><td colSpan={8} className="py-12 text-center text-slate-500">暂无用户数据</td></tr>
-              ) : filteredUsers.map((user, index) => (
-                <motion.tr
-                  key={user.id}
-                  initial={{ opacity: 0, x: -20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: index * 0.05 }}
-                  className="border-b border-slate-800 hover:bg-slate-800/30 transition-colors"
-                >
-                  {/* 用户信息 */}
-                  <td className="py-4 px-6">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-full bg-slate-700 flex items-center justify-center text-2xl">
-                        👤
-                      </div>
-                      <div>
-                        <div className="text-white font-medium">{user.companyName}</div>
-                        <div className="text-xs text-slate-500">{user.email}</div>
-                      </div>
+              {loading ? <tr><td colSpan={7} className="p-4 text-center text-slate-500">加载中...</td></tr> : 
+               users.map((u: any) => (
+                <tr key={u.id} className="border-b border-slate-800 hover:bg-slate-800/30 transition-colors">
+                  <td className="p-4 flex items-center">
+                    <div className="w-8 h-8 rounded-full bg-blue-500/20 flex items-center justify-center mr-3 text-blue-400 font-bold">
+                      {u.email.charAt(0).toUpperCase()}
                     </div>
+                    <span className="font-medium">{u.email}</span>
                   </td>
-
-                  {/* 联系方式 */}
-                  <td className="py-4 px-6">
-                    <span className="text-slate-400 font-mono text-sm">{user.phone}</span>
-                  </td>
-
-                  {/* 当前套餐 */}
-                  <td className="py-4 px-6">
-                    <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-                      user.planColor === 'blue' ? 'bg-blue-500/20 border border-blue-500/30 text-blue-400' :
-                      user.planColor === 'purple' ? 'bg-purple-500/20 border border-purple-500/30 text-purple-400' :
-                      user.planColor === 'emerald' ? 'bg-emerald-500/20 border border-emerald-500/30 text-emerald-400' :
-                      'bg-slate-500/20 border border-slate-500/30 text-slate-400'
-                    }`}>
-                      {user.currentPlan}
+                  <td className="p-4 text-slate-400 font-mono text-xs">{u.phone || '-'}</td>
+                  <td className="p-4">
+                    <span className="bg-slate-800 border border-slate-700 text-slate-300 px-3 py-1 rounded-full text-xs">
+                      {u.subscriptionTier || u.currentPlan}
                     </span>
                   </td>
-
-                  {/* 算力余额 */}
-                  <td className="py-4 px-6 text-right">
-                    <span className="text-orange-400 font-bold">{user.credits.toLocaleString()}</span>
-                    <span className="text-slate-500 text-xs ml-1">点</span>
-                  </td>
-
-                  {/* 发信风控 */}
-                  <td className="py-4 px-6 text-right">
-                    <span className={`font-bold ${user.isSendingSuspended ? 'text-red-400' : 'text-emerald-400'}`}>
-                      {user.isSendingSuspended ? '已暂停' : '正常'}
-                    </span>
-                  </td>
-
-                  {/* 注册时间 */}
-                  <td className="py-4 px-6">
-                    <span className="text-slate-400 text-sm">{user.registeredAt}</span>
-                  </td>
-
-                  {/* 状态 */}
-                  <td className="py-4 px-6">
-                    {!user.isSendingSuspended ? (
-                      <span className="px-2 py-1 bg-emerald-500/20 border border-emerald-500/30 rounded text-xs text-emerald-400 font-medium">
-                        正常
-                      </span>
+                  <td className="p-4 font-bold text-orange-400">{Number(u.credits || u.tokenBalance || 0).toLocaleString()} 点</td>
+                  <td className="p-4 text-slate-400 text-xs">{new Date(u.createdAt || u.registeredAt).toLocaleDateString()}</td>
+                  <td className="p-4">
+                    {u.status === 'banned' ? (
+                      <span className="text-red-400 border border-red-500/30 bg-red-500/10 px-2 py-1 rounded text-xs">封禁</span>
                     ) : (
-                      <span className="px-2 py-1 bg-red-500/20 border border-red-500/30 rounded text-xs text-red-400 font-medium">
-                        已暂停发信
-                      </span>
+                      <span className="text-emerald-400 border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 rounded text-xs">正常</span>
                     )}
                   </td>
-
-                  {/* 操作 */}
-                  <td className="py-4 px-6">
-                    <div className="flex items-center justify-center">
-                      <div className="relative">
-                        <button
-                          onClick={() => setShowActionMenu(showActionMenu === user.id ? null : user.id)}
-                          className="p-2 hover:bg-slate-700 rounded-lg transition-colors"
-                        >
-                          <MoreVertical className="w-4 h-4 text-slate-400" />
-                        </button>
-
-                        {/* 下拉菜单 */}
-                        {showActionMenu === user.id && (
-                          <div className="absolute right-0 mt-2 w-48 bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-10">
-                            <button
-                              onClick={() => handleViewProfile(user)}
-                              className="w-full flex items-center gap-2 px-4 py-3 text-left text-sm text-slate-300 hover:bg-slate-700 transition-colors"
-                            >
-                              <User className="w-4 h-4" />
-                              查看资料
-                            </button>
-                            <button
-                              onClick={() => {
-                                setSelectedUser(user)
-                                setShowGiftModal(true)
-                                setShowActionMenu(null)
-                              }}
-                              className="w-full flex items-center gap-2 px-4 py-3 text-left text-sm text-emerald-400 hover:bg-slate-700 transition-colors"
-                            >
-                              <Gift className="w-4 h-4" />
-                              赠送算力加油包
-                            </button>
-                            <button
-                              onClick={() => {
-                                setSelectedUser(user)
-                                setShowUpgradeModal(true)
-                                setShowActionMenu(null)
-                              }}
-                              className="w-full flex items-center gap-2 px-4 py-3 text-left text-sm text-blue-400 hover:bg-slate-700 transition-colors"
-                            >
-                              <TrendingUp className="w-4 h-4" />
-                              调整套餐等级
-                            </button>
-                            <button
-                              onClick={() => {
-                                setSelectedUser(user)
-                                setShowBanModal(true)
-                                setShowActionMenu(null)
-                              }}
-                              className="w-full flex items-center gap-2 px-4 py-3 text-left text-sm text-red-400 hover:bg-slate-700 transition-colors"
-                            >
-                              <Ban className="w-4 h-4" />
-                              {user.isSendingSuspended ? '恢复发信能力' : '暂停发信能力'}
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    </div>
+                  <td className="p-4 text-center">
+                    <button 
+                      onClick={() => handleOpenProfile(u)}
+                      className="text-blue-400 hover:text-blue-300 bg-blue-500/10 hover:bg-blue-500/20 px-3 py-1.5 rounded transition-colors text-xs flex items-center justify-center mx-auto"
+                    >
+                      <UserCog className="w-3.5 h-3.5 mr-1" /> 管理与查账
+                    </button>
                   </td>
-                </motion.tr>
+                </tr>
               ))}
             </tbody>
           </table>
         </div>
-      </motion.div>
+      </div>
 
-      {/* 赠送算力弹窗 */}
-      {showGiftModal && selectedUser && (
-        <>
-          <div 
-            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50"
-            onClick={() => setShowGiftModal(false)}
-          />
-          <div className="fixed inset-0 flex items-center justify-center z-50 p-4">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
-              className="bg-slate-900 border border-emerald-500/50 rounded-2xl p-6 max-w-md w-full"
-            >
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-full bg-emerald-500/20 flex items-center justify-center">
-                    <Gift className="w-6 h-6 text-emerald-500" />
-                  </div>
-                  <div>
-                    <h3 className="text-xl font-bold text-white">赠送算力加油包</h3>
-                    <p className="text-sm text-slate-400">为用户充值算力点数</p>
-                  </div>
-                </div>
-                <button
-                  onClick={() => setShowGiftModal(false)}
-                  className="text-slate-400 hover:text-white"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
+      {/* 🚀 终极复合弹窗：用户详情 + X光机审计 + 快捷操作 */}
+      {profileModalOpen && selectedUser && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
+            className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-4xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]"
+          >
+            {/* 弹窗头部 */}
+            <div className="p-5 bg-slate-800/80 border-b border-slate-700 flex justify-between items-center">
+              <h2 className="text-xl font-bold text-white flex items-center">
+                <UserCog className="w-5 h-5 mr-2 text-blue-400" /> 用户综合管理面板
+              </h2>
+              <button onClick={() => setProfileModalOpen(false)} className="text-slate-400 hover:text-white text-2xl">&times;</button>
+            </div>
+            
+            {/* 弹窗主体 左右分栏 */}
+            <div className="flex flex-col md:flex-row flex-1 overflow-y-auto">
               
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-slate-300 mb-2">
-                  用户
-                </label>
-                <input
-                  type="text"
-                  value={selectedUser.companyName}
-                  disabled
-                  className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-4 py-2 text-slate-400"
-                />
-              </div>
-
-              <div className="mb-6">
-                <label className="block text-sm font-medium text-slate-300 mb-2">
-                  赠送算力点数
-                </label>
-                <input
-                  type="number"
-                  value={giftAmount}
-                  onChange={(e) => setGiftAmount(e.target.value)}
-                  placeholder="请输入算力点数"
-                  className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-4 py-2 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
-                />
-              </div>
-
-              <div className="flex gap-3">
-                <Button
-                  onClick={() => setShowGiftModal(false)}
-                  variant="outline"
-                  className="flex-1"
-                >
-                  取消
-                </Button>
-                <Button
-                  onClick={handleGiftCredits}
-                  disabled={!giftAmount}
-                  className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white"
-                >
-                  确认赠送
-                </Button>
-              </div>
-            </motion.div>
-          </div>
-        </>
-      )}
-
-      {/* 调整套餐弹窗 */}
-      {showUpgradeModal && selectedUser && (
-        <>
-          <div 
-            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50"
-            onClick={() => setShowUpgradeModal(false)}
-          />
-          <div className="fixed inset-0 flex items-center justify-center z-50 p-4">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
-              className="bg-slate-900 border border-blue-500/50 rounded-2xl p-6 max-w-md w-full"
-            >
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-full bg-blue-500/20 flex items-center justify-center">
-                    <TrendingUp className="w-6 h-6 text-blue-500" />
+              {/* 左侧：基础资料与高频操作 */}
+              <div className="w-full md:w-1/3 p-6 border-b md:border-b-0 md:border-r border-slate-700 bg-slate-800/20">
+                <div className="mb-6">
+                  <div className="w-16 h-16 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-2xl font-bold text-white mb-4">
+                    {selectedUser.email.charAt(0).toUpperCase()}
                   </div>
-                  <div>
-                    <h3 className="text-xl font-bold text-white">调整套餐等级</h3>
-                    <p className="text-sm text-slate-400">手动修改用户套餐</p>
+                  <h3 className="text-lg font-bold text-white break-all">{selectedUser.email}</h3>
+                  <p className="text-sm text-slate-400 font-mono mt-1">{selectedUser.phone || '未绑定手机'}</p>
+                  <div className="mt-3 inline-block bg-blue-500/20 text-blue-400 border border-blue-500/30 px-3 py-1 rounded text-xs">
+                    {selectedUser.subscriptionTier || selectedUser.currentPlan}
                   </div>
                 </div>
-                <button
-                  onClick={() => setShowUpgradeModal(false)}
-                  className="text-slate-400 hover:text-white"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-              
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-slate-300 mb-2">
-                  用户
-                </label>
-                <input
-                  type="text"
-                  value={selectedUser.companyName}
-                  disabled
-                  className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-4 py-2 text-slate-400"
-                />
-              </div>
 
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-slate-300 mb-2">
-                  当前套餐
-                </label>
-                <input
-                  type="text"
-                  value={selectedUser.currentPlan}
-                  disabled
-                  className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-4 py-2 text-slate-400"
-                />
-              </div>
+                <div className="space-y-4 pt-4 border-t border-slate-700">
+                  <h4 className="text-sm font-bold text-slate-300">快捷操作指令</h4>
+                  
+                  {/* 充值模块 */}
+                  <div className="bg-slate-800/50 p-3 rounded-lg border border-slate-700">
+                    <label className="text-xs text-slate-400 mb-2 block">手动发放虚拟算力</label>
+                    <div className="flex gap-2">
+                      <input 
+                        type="number" value={giftAmount} onChange={e => setGiftAmount(e.target.value)}
+                        placeholder="输入额度" className="w-full bg-slate-900 border border-slate-600 rounded px-2 py-1.5 text-sm text-white"
+                      />
+                      <button onClick={handleGift} className="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded text-xs font-bold whitespace-nowrap transition-colors">
+                        <Gift className="w-3 h-3 inline mr-1" />充值
+                      </button>
+                    </div>
+                  </div>
 
-              <div className="mb-6">
-                <label className="block text-sm font-medium text-slate-300 mb-2">
-                  新套餐等级
-                </label>
-                <select
-                  value={newPlan}
-                  onChange={(e) => setNewPlan(e.target.value)}
-                  className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                >
-                  <option value="">请选择套餐</option>
-                  <option value="体验版">体验版</option>
-                  <option value="专业版">专业版</option>
-                  <option value="企业版">企业版</option>
-                </select>
-              </div>
-
-              <div className="flex gap-3">
-                <Button
-                  onClick={() => setShowUpgradeModal(false)}
-                  variant="outline"
-                  className="flex-1"
-                >
-                  取消
-                </Button>
-                <Button
-                  onClick={handleUpgradePlan}
-                  disabled={!newPlan}
-                  className="flex-1 bg-blue-600 hover:bg-blue-500 text-white"
-                >
-                  确认调整
-                </Button>
-              </div>
-            </motion.div>
-          </div>
-        </>
-      )}
-
-      {/* 封禁账号弹窗 */}
-      {showBanModal && selectedUser && (
-        <>
-          <div 
-            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50"
-            onClick={() => setShowBanModal(false)}
-          />
-          <div className="fixed inset-0 flex items-center justify-center z-50 p-4">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
-              className="bg-slate-900 border border-red-500/50 rounded-2xl p-6 max-w-md w-full"
-            >
-              <div className="flex items-center gap-3 mb-4">
-                <div className="w-12 h-12 rounded-full bg-red-500/20 flex items-center justify-center">
-                  <Ban className="w-6 h-6 text-red-500" />
-                </div>
-                <div>
-                  <h3 className="text-xl font-bold text-white">封禁账号</h3>
-                  <p className="text-sm text-slate-400">此操作不可撤销</p>
+                  {/* 危险操作区 */}
+                  <div className="pt-2">
+                    <button onClick={handleBan} className="w-full flex items-center justify-center bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-400 px-4 py-2.5 rounded text-sm transition-colors">
+                      <Ban className="w-4 h-4 mr-2" /> 彻底封禁并清空资产
+                    </button>
+                  </div>
                 </div>
               </div>
-              
-              <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 mb-6">
-                <p className="text-sm text-slate-300">
-                  确定要{selectedUser.isSendingSuspended ? '恢复' : '暂停'}用户 <span className="text-white font-bold">{selectedUser.companyName}</span> 的发信能力吗？
-                </p>
-                <p className="text-xs text-slate-500 mt-2">
-                  该操作不影响登录，仅用于风控拦截发信
-                </p>
-              </div>
 
-              <div className="flex gap-3">
-                <Button
-                  onClick={() => setShowBanModal(false)}
-                  variant="outline"
-                  className="flex-1"
-                >
-                  取消
-                </Button>
-                <Button
-                  onClick={handleSuspendSending}
-                  className="flex-1 bg-red-600 hover:bg-red-500 text-white"
-                >
-                  确认
-                </Button>
+              {/* 右侧：底层资产查账与 X光机审计 */}
+              <div className="w-full md:w-2/3 p-6 bg-slate-900">
+                <h3 className="text-lg font-bold text-white mb-4 flex items-center">
+                  <Activity className="w-5 h-5 mr-2 text-orange-500" /> 底层资产深度审计
+                </h3>
+
+                {auditLoading ? (
+                  <div className="flex flex-col items-center justify-center h-48 text-orange-500 space-y-3">
+                    <div className="w-8 h-8 border-4 border-orange-500 border-t-transparent rounded-full animate-spin"></div>
+                    <p className="text-sm animate-pulse">正在穿透数据库读取财务明细...</p>
+                  </div>
+                ) : auditData ? (
+                  <div className="space-y-5">
+                    
+                    {/* 智能退款风控提示灯 */}
+                    <div className={`p-4 rounded-xl border ${auditData.assets?.domainCount > 0 ? 'bg-red-500/10 border-red-500/50' : 'bg-emerald-500/10 border-emerald-500/50'}`}>
+                      <h4 className={`font-bold flex items-center mb-1 ${auditData.assets?.domainCount > 0 ? 'text-red-400' : 'text-emerald-400'}`}>
+                        <ShieldAlert className="w-4 h-4 mr-2" /> 智能退款风控结论：
+                      </h4>
+                      <p className="text-sm text-slate-300 ml-6">
+                        {auditData.assets?.domainCount > 0 
+                          ? '🚨 警告：该客户已激活专属域名！系统已向第三方垫付不可逆硬成本，根据政策【绝对禁止全额退款】。' 
+                          : '✅ 安全：该客户仅消耗虚拟算力，未占用独立域名通道，可以安全办理原路退款。'}
+                      </p>
+                    </div>
+
+                    {/* 核心资产数据网格 */}
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="bg-slate-800/80 border border-slate-700 p-4 rounded-xl">
+                        <div className="text-slate-400 text-xs mb-1">当前剩余虚拟算力</div>
+                        <div className="text-2xl font-bold text-orange-400">
+                          {Number(auditData.balances?.tokenBalance || 0).toLocaleString()} <span className="text-sm text-slate-500 font-normal">点</span>
+                        </div>
+                      </div>
+                      <div className="bg-slate-800/80 border border-slate-700 p-4 rounded-xl">
+                        <div className="text-slate-400 text-xs mb-1">已占用独立域名 (高成本基建)</div>
+                        <div className="text-2xl font-bold text-white">
+                          {auditData.assets?.domainCount || 0} <span className="text-sm text-slate-500 font-normal">个</span>
+                        </div>
+                      </div>
+                      <div className="bg-slate-800/80 border border-slate-700 p-4 rounded-xl">
+                        <div className="text-slate-400 text-xs mb-1 flex items-center">
+                          该客户制造的 API 硬成本
+                          <span className="ml-2 text-[10px] bg-red-500/20 text-red-400 px-1.5 py-0.5 rounded">会扣您的钱</span>
+                        </div>
+                        <div className="text-2xl font-bold text-red-400">
+                          ¥{Number(auditData.balances?.apiCostTotal || 0).toFixed(2)}
+                        </div>
+                      </div>
+                      <div className="bg-slate-800/80 border border-slate-700 p-4 rounded-xl">
+                        <div className="text-slate-400 text-xs mb-1">历史下达拓客任务数</div>
+                        <div className="text-2xl font-bold text-white">
+                          {auditData.assets?.campaignCount || 0} <span className="text-sm text-slate-500 font-normal">次</span>
+                        </div>
+                      </div>
+                    </div>
+
+                  </div>
+                ) : (
+                  <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm">
+                    获取审计数据失败，请检查数据库连接。
+                  </div>
+                )}
               </div>
-            </motion.div>
-          </div>
-        </>
+            </div>
+          </motion.div>
+        </div>
       )}
     </div>
   )

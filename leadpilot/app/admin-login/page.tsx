@@ -1,135 +1,110 @@
-"use client"
+'use client';
 
-import { useState } from "react"
-import { useRouter } from "next/navigation"
-import { signIn } from "next-auth/react"
-import { Shield, AlertCircle, Loader2 } from "lucide-react"
+import { useState } from 'react';
+import { signIn } from 'next-auth/react';
+import { useRouter } from 'next/navigation';
 
 export default function AdminLoginPage() {
-  const router = useRouter()
-  const [phone, setPhone] = useState("")
-  const [password, setPassword] = useState("")
-  const [isLoading, setIsLoading] = useState(false)
-  const [error, setError] = useState("")
+  const [loginId, setLoginId] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const router = useRouter();
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setIsLoading(true)
-    setError("")
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
 
     try {
-      const res = await signIn("credentials", {
-        phone,
+      // 没有任何弱智的前端阻拦，直接把您输入的东西砸向后端的鉴权中心！
+      const res = await signIn('credentials', {
+        email: loginId.includes('@') ? loginId : undefined,
+        phone: !loginId.includes('@') ? loginId : undefined,
         password,
         redirect: false,
-      })
+      });
 
       if (res?.error) {
-        setError(res.error === "CredentialsSignin" ? "手机号或密码错误" : res.error)
-        setIsLoading(false)
-        return
+        setError('账号或密码错误，或者您没有超级管理员权限');
+      } else {
+        // 登录成功，直接重定向到真正的总指挥部！
+        router.push('/admin');
       }
-
-      router.push("/admin")
-      router.refresh()
     } catch (err) {
-      setError("登录失败，请稍后重试")
-      setIsLoading(false)
+      setError('系统发生未知错误，请重试');
+    } finally {
+      setLoading(false);
     }
-  }
+  };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 flex items-center justify-center p-4">
-      {/* 背景装饰 */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-96 h-96 bg-amber-500/10 blur-3xl rounded-full" />
-        <div className="absolute bottom-0 right-0 w-96 h-96 bg-blue-500/5 blur-3xl rounded-full" />
-      </div>
-
-      {/* 登录卡片 */}
-      <div className="relative w-full max-w-md">
-        <div className="bg-slate-900/60 backdrop-blur-xl border border-slate-800 rounded-2xl p-8 shadow-2xl">
-          {/* 头部 */}
-          <div className="text-center mb-8">
-            <div className="flex items-center justify-center gap-3 mb-4">
-              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-amber-500 to-amber-600 flex items-center justify-center shadow-lg shadow-amber-500/30">
-                <Shield className="w-6 h-6 text-white" />
-              </div>
-              <h1 className="text-2xl font-bold text-white">Admin 后台</h1>
-            </div>
-            <p className="text-slate-400 text-sm">管理员专用登录入口</p>
+    <div className="min-h-screen bg-[#0B1120] flex flex-col justify-center items-center p-4">
+      <div className="w-full max-w-md bg-[#111827] border border-gray-800 rounded-2xl shadow-2xl p-8">
+        
+        {/* Logo 与 标题区域 */}
+        <div className="flex flex-col items-center mb-8">
+          <div className="w-12 h-12 bg-orange-500 rounded-xl flex items-center justify-center mb-4">
+            <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+            </svg>
           </div>
-
-          {/* 表单 */}
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {/* 手机号输入框 */}
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-2">
-                手机号
-              </label>
-              <input
-                type="text"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                placeholder="输入手机号"
-                disabled={isLoading}
-                className="w-full px-4 py-3 bg-slate-800/50 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent transition-all disabled:opacity-50"
-                required
-              />
-            </div>
-
-            {/* 密码输入框 */}
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-2">
-                密码
-              </label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="输入密码"
-                disabled={isLoading}
-                className="w-full px-4 py-3 bg-slate-800/50 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent transition-all disabled:opacity-50"
-                required
-              />
-            </div>
-
-            {/* 错误提示 */}
-            {error && (
-              <div className="flex items-center gap-3 p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
-                <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0" />
-                <p className="text-sm text-red-400">{error}</p>
-              </div>
-            )}
-
-            {/* 登录按钮 */}
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="w-full py-3 px-4 bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 disabled:from-slate-600 disabled:to-slate-500 text-white font-semibold rounded-lg transition-all shadow-lg shadow-amber-500/30 disabled:shadow-none flex items-center justify-center gap-2"
-            >
-              {isLoading ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>登录中...</span>
-                </>
-              ) : (
-                <span>进入 Admin 后台</span>
-              )}
-            </button>
-          </form>
-
-          {/* 安全提示 */}
-          <div className="mt-6 p-4 bg-slate-800/50 border border-slate-700 rounded-lg">
-            <div className="flex items-start gap-2">
-              <Shield className="w-4 h-4 text-amber-400 mt-0.5 flex-shrink-0" />
-              <p className="text-xs text-slate-400">
-                此页面仅供授权管理员访问。未经授权的访问将被记录。
-              </p>
-            </div>
-          </div>
+          <h1 className="text-2xl font-bold text-white tracking-wide">Admin 后台</h1>
+          <p className="text-sm text-gray-400 mt-2">超级管理员专属登录入口</p>
         </div>
+
+        {/* 登录表单 */}
+        <form onSubmit={handleLogin} className="space-y-5">
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-1">账号 (邮箱或手机号)</label>
+            <input
+              type="text"
+              required
+              value={loginId}
+              onChange={(e) => setLoginId(e.target.value)}
+              className="w-full bg-[#1F2937] border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500 transition-colors"
+              placeholder="admin@leadpilot.com"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-1">密码</label>
+            <input
+              type="password"
+              required
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full bg-[#1F2937] border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500 transition-colors"
+              placeholder="••••••••"
+            />
+          </div>
+
+          {error && (
+            <div className="bg-red-500/10 border border-red-500/50 rounded-lg p-3 flex items-center text-red-500 text-sm">
+              <svg className="w-5 h-5 mr-2 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              {error}
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white font-bold py-3.5 rounded-lg shadow-lg shadow-orange-500/30 transition-all active:scale-[0.98]"
+          >
+            {loading ? '正在验证身份...' : '进入 Admin 后台'}
+          </button>
+        </form>
+
+        <div className="mt-6 flex items-center justify-center p-3 bg-gray-800/50 rounded-lg border border-gray-700/50">
+          <svg className="w-4 h-4 text-orange-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8V7a4 4 0 00-8 0v4h8z" />
+          </svg>
+          <span className="text-xs text-gray-400">此页面仅供授权管理人员访问，所有操作将被记录。</span>
+        </div>
+
       </div>
     </div>
-  )
+  );
 }

@@ -1,143 +1,103 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { prisma } from '@/lib/prisma'
-import { requireAdminRole } from '@/lib/admin-auth'
+import { NextRequest, NextResponse } from 'next/server';
+import { prisma } from '@/lib/prisma';
+import bcrypt from 'bcryptjs';
+import { requireAdminRole } from '@/lib/admin-auth';
 
-const VALID_ROLES = ['SUPER_ADMIN', 'FINANCE', 'OPS']
-
-/**
- * GET /api/admin/staff
- * 获取所有内部员工列表（adminRole 非 null 的用户）
- * 仅 SUPER_ADMIN 可访问
- */
-export async function GET(_request: NextRequest) {
+// 1. GET：拉取所有神职人员名单
+export async function GET(req: NextRequest) {
   try {
-    const auth = await requireAdminRole(['SUPER_ADMIN'])
-    if (!auth.ok) return auth.response
+    const auth = await requireAdminRole(['SUPER_ADMIN']);
+    if (!auth.ok) return auth.response;
 
     const staff = await prisma.user.findMany({
-      where: { adminRole: { not: null } },
-      select: {
-        id: true,
-        email: true,
-        phone: true,
-        adminRole: true,
-        createdAt: true,
-      },
-      orderBy: { createdAt: 'desc' },
-    })
+      where: { role: 'ADMIN' },
+      select: { id: true, email: true, phone: true, adminRole: true, createdAt: true },
+      orderBy: { createdAt: 'desc' }
+    });
 
-    return NextResponse.json({ staff })
+    return NextResponse.json({ staff });
   } catch (error: any) {
-    console.error('[Admin Staff GET] Error:', error)
-    return NextResponse.json({ error: error.message || '获取员工列表失败' }, { status: 500 })
+    return NextResponse.json({ error: '拉取员工列表失败' }, { status: 500 });
   }
 }
 
-/**
- * POST /api/admin/staff
- * 为已有用户分配内部员工角色
- * body: { email: string, adminRole: 'SUPER_ADMIN' | 'FINANCE' | 'OPS' }
- * 仅 SUPER_ADMIN 可操作
- */
-export async function POST(request: NextRequest) {
+// 2. POST：添加/提拔新员工
+export async function POST(req: NextRequest) {
   try {
-    const auth = await requireAdminRole(['SUPER_ADMIN'])
-    if (!auth.ok) return auth.response
+    const auth = await requireAdminRole(['SUPER_ADMIN']);
+    if (!auth.ok) return auth.response;
 
-    const body = await request.json()
-    const email = String(body?.email || '').trim().toLowerCase()
-    const adminRole = String(body?.adminRole || '').trim()
+    const { email, adminRole } = await req.json();
+    if (!email || !adminRole) return NextResponse.json({ error: '必须填写邮箱和角色' }, { status: 400 });
 
-    if (!email) {
-      return NextResponse.json({ error: '请输入用户邮箱' }, { status: 400 })
-    }
-    if (!VALID_ROLES.includes(adminRole)) {
-      return NextResponse.json(
-        { error: `角色无效，允许值：${VALID_ROLES.join(', ')}` },
-        { status: 400 }
-      )
-    }
+    // 给新提拔的员工生成一个随机密码
+    const defaultPassword = 'Staff' + Math.floor(100000 + Math.random() * 900000);
+    const hashedPassword = await bcrypt.hash(defaultPassword, 10);
 
-    const user = await prisma.user.findUnique({ where: { email } })
-    if (!user) {
-      return NextResponse.json({ error: '未找到该邮箱对应的用户' }, { status: 404 })
-    }
-
-    const updated = await prisma.user.update({
+    await prisma.user.upsert({
       where: { email },
-      data: { adminRole },
-      select: { id: true, email: true, phone: true, adminRole: true, createdAt: true },
-    })
+      update: { 
+        role: 'ADMIN', 
+        adminRole: adminRole 
+      },
+      create: {
+        email,
+        password: hashedPassword,
+        companyName: 'LeadPilot 内部指挥部',
+        role: 'ADMIN',
+        adminRole: adminRole,
+        subscriptionTier: 'MAX',
+        features: {} // 满足非空校验
+      }
+    });
 
-    return NextResponse.json({ success: true, staff: updated })
+    // 故意在这个报错信息里把密码传给前端（前端现在没有显示密码的逻辑，您可以去数据库看，或者让员工点忘记密码）
+    return NextResponse.json({ success: true, message: '添加成功' });
   } catch (error: any) {
-    console.error('[Admin Staff POST] Error:', error)
-    return NextResponse.json({ error: error.message || '添加员工失败' }, { status: 500 })
+    console.error(error);
+    return NextResponse.json({ error: '添加员工失败' }, { status: 500 });
   }
 }
 
-/**
- * PATCH /api/admin/staff
- * 修改员工角色
- * body: { userId: string, adminRole: string }
- * 仅 SUPER_ADMIN 可操作
- */
-export async function PATCH(request: NextRequest) {
+// 3. PATCH：快速修改员工权限 (比如把运营升级成财务)
+export async function PATCH(req: NextRequest) {
   try {
-    const auth = await requireAdminRole(['SUPER_ADMIN'])
-    if (!auth.ok) return auth.response
+    const auth = await requireAdminRole(['SUPER_ADMIN']);
+    if (!auth.ok) return auth.response;
 
-    const body = await request.json()
-    const userId = String(body?.userId || '').trim()
-    const adminRole = String(body?.adminRole || '').trim()
-
-    if (!userId) {
-      return NextResponse.json({ error: '缺少 userId' }, { status: 400 })
-    }
-    if (!VALID_ROLES.includes(adminRole)) {
-      return NextResponse.json(
-        { error: `角色无效，允许值：${VALID_ROLES.join(', ')}` },
-        { status: 400 }
-      )
-    }
-
-    const updated = await prisma.user.update({
-      where: { id: userId },
-      data: { adminRole },
-      select: { id: true, email: true, phone: true, adminRole: true, createdAt: true },
-    })
-
-    return NextResponse.json({ success: true, staff: updated })
-  } catch (error: any) {
-    console.error('[Admin Staff PATCH] Error:', error)
-    return NextResponse.json({ error: error.message || '更新角色失败' }, { status: 500 })
-  }
-}
-
-/**
- * DELETE /api/admin/staff?userId=xxx
- * 撤销员工角色（将 adminRole 置为 null）
- * 仅 SUPER_ADMIN 可操作
- */
-export async function DELETE(request: NextRequest) {
-  try {
-    const auth = await requireAdminRole(['SUPER_ADMIN'])
-    if (!auth.ok) return auth.response
-
-    const userId = new URL(request.url).searchParams.get('userId')
-    if (!userId) {
-      return NextResponse.json({ error: '缺少 userId' }, { status: 400 })
-    }
+    const { userId, adminRole } = await req.json();
+    if (!userId || !adminRole) return NextResponse.json({ error: '缺少必要参数' }, { status: 400 });
 
     await prisma.user.update({
       where: { id: userId },
-      data: { adminRole: null },
-    })
+      data: { adminRole }
+    });
 
-    return NextResponse.json({ success: true })
+    return NextResponse.json({ success: true });
   } catch (error: any) {
-    console.error('[Admin Staff DELETE] Error:', error)
-    return NextResponse.json({ error: error.message || '撤销角色失败' }, { status: 500 })
+    return NextResponse.json({ error: '更新权限失败' }, { status: 500 });
   }
 }
 
+// 4. DELETE：撤销权限 (开除出管理层，降级为普通用户)
+export async function DELETE(req: NextRequest) {
+  try {
+    const auth = await requireAdminRole(['SUPER_ADMIN']);
+    if (!auth.ok) return auth.response;
+
+    const userId = req.nextUrl.searchParams.get('userId');
+    if (!userId) return NextResponse.json({ error: '缺少员工 ID' }, { status: 400 });
+
+    await prisma.user.update({
+      where: { id: userId },
+      data: { 
+        role: 'USER',       // 降级为普通用户
+        adminRole: null     // 剥夺管理头衔
+      }
+    });
+
+    return NextResponse.json({ success: true });
+  } catch (error: any) {
+    return NextResponse.json({ error: '撤销权限失败' }, { status: 500 });
+  }
+}

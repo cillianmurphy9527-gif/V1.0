@@ -1,32 +1,52 @@
+/**
+ * 🚀 Nova Engine (香港轻量云 - 泥头车引擎)
+ * 核心职责：监听 Redis 队列 -> 拉取任务 -> 四步清洗 -> 发回战报
+ */
+
 import * as dotenv from 'dotenv';
-import { PrismaClient } from '@prisma/client';
+import { Worker } from 'bullmq';
+import Redis from 'ioredis';
 import { runEngine } from './services/engine';
 
 dotenv.config();
-const prisma = new PrismaClient();
 
-async function main() {
-  console.log("[Nova Engine] 🚀 NOVA 清洗引擎点火中...\n");
+// 1. 连接您的基础设施 (Redis)
+const REDIS_HOST = process.env.REDIS_HOST || '127.0.0.1';
+const REDIS_PORT = parseInt(process.env.REDIS_PORT || '6379');
+const REDIS_PASSWORD = process.env.REDIS_PASSWORD || undefined;
+
+const connection = new Redis({
+  host: REDIS_HOST,
+  port: REDIS_PORT,
+  password: REDIS_PASSWORD,
+  maxRetriesPerRequest: null,
+});
+
+console.log(`\n=============================================`);
+console.log(`[Nova Engine] 🚀 远洋舰队 (泥头车) 启动就绪！`);
+console.log(`[Nova Engine] 📡 正在监听 Redis 主控指令...`);
+console.log(`=============================================\n`);
+
+// 2. 开启全天候雷达，死死盯住 'nova-jobs' 队列
+const worker = new Worker('nova-jobs', async (job) => {
+  const { jobId, keyword, userId } = job.data;
+  
+  console.log(`\n🚨 [雷达警报] 收到来自主站的实弹攻击指令！`);
+  console.log(`🎯 [任务目标] 关键词: [${keyword}] | 指挥官ID: [${userId}] | 任务编号: [${jobId}]`);
+  
   try {
-    const count = await prisma.userLead.count();
-    console.log(`[Nova Engine] ✅ 数据库接入成功！当前金库共有 ${count} 条线索。\n`);
-
-    // ── 启动五步清洗与发信衔接引擎 ─────────────────────
-    //   Step1: mockProxycurl       → 发现公司域名 + LinkedIn
-    //   Step2: mockHunter → mockSnov → 获取邮箱（串联容错）
-    //   Step3: mockSmtpVerify      → SMTP 验证，INVALID 丢弃
-    //   Step4: saveToDatabase     → upsert，isUnlocked=true (READY_FOR_OUTREACH)
-    //   Step5: triggerOutreachPreparation → 发信队列衔接
-    //
-    await runEngine('all');
-    // ──────────────────────────────────────────────────
-
-  } catch (error) {
-    console.error('[Nova Engine] ❌ 运行异常:', error);
-  } finally {
-    await prisma.$disconnect();
-    console.log('[Nova Engine] 👀 任务完成。');
+    // 3. 收到指令，踩下油门！把前端传来的“真实搜索词”喂给引擎
+    await runEngine(keyword);
+    console.log(`✅ [任务完成] 关键词 [${keyword}] 的搜刮任务已结束，进入静默待机。`);
+  } catch (error: any) {
+    console.error(`❌ [任务坠毁] 执行 [${keyword}] 任务时发生致命异常:`, error.message);
+    throw error;
   }
-}
+}, { connection,
+     concurrency: 10 // 👈 关键魔法：允许 10 个任务同时起跑！
+});
 
-main();
+// 监听错误，防止进程崩溃
+worker.on('error', err => {
+  console.error('[雷达故障] Worker 发生异常:', err);
+});

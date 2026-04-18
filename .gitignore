@@ -9,10 +9,14 @@ out/
 build/
 dist/
 
-# 过滤环境变量（极其重要，保护您的 API Key！）
+# 过滤环境变量（极其重要，保护您的 API Key、微信支付秘钥等！）
 .env
 .env.*
 !.env.example
 
-# 过滤 Mac 系统垃圾
+# 过滤 Mac/Windows 系统垃圾
 .DS_Store
+Thumbs.db
+
+# 过滤动态生成的本地数据库/配置文件（极其重要，防止本地测试数据覆盖线上真实生意！）
+pricing_store.json

@@ -1,102 +1,67 @@
-/**
- * POST /api/nova/start
- * 将 Dashboard 战术配置写入 NovaTask，并入队 Redis（nova_tasks_queue）供异步消费。
- */
+import { NextRequest, NextResponse } from 'next/server';
+import { getToken } from 'next-auth/jwt';
+import { Queue } from 'bullmq';
+import Redis from 'ioredis';
 
-import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth/next'
-import { authOptions } from '@/lib/auth'
-import { prisma } from '@/lib/prisma'
-import { getRedis } from '@/lib/redis'
+const REDIS_HOST = process.env.REDIS_HOST || '127.0.0.1';
+const REDIS_PORT = parseInt(process.env.REDIS_PORT || '6379');
+const REDIS_PASSWORD = process.env.REDIS_PASSWORD || undefined;
 
-export const runtime = 'nodejs'
+const connection = new Redis({
+  host: REDIS_HOST,
+  port: REDIS_PORT,
+  password: REDIS_PASSWORD,
+  maxRetriesPerRequest: null,
+});
 
-const QUEUE_KEY = 'nova_tasks_queue'
+const novaQueue = new Queue('nova-jobs', { connection });
 
-function joinList(arr: unknown, single: unknown, fallback: string): string {
+// 辅助函数：把前端传来的数组提纯成字符串
+function joinList(arr: any, fallback: string): string {
   if (Array.isArray(arr) && arr.length > 0) {
-    return arr.map((x) => String(x).trim()).filter(Boolean).join(', ')
+    return arr.map((x) => String(x).trim()).filter(Boolean).join(' ');
   }
-  if (typeof single === 'string' && single.trim()) return single.trim()
-  return fallback
+  return fallback;
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions)
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    const token = await getToken({ req: request as any, secret: process.env.NEXTAUTH_SECRET });
+    if (!token?.id) return NextResponse.json({ error: '请先登录' }, { status: 401 });
+
+    const body = await request.json();
+    
+    // 🚨 架构师修复：尝试获取直接的 keyword，如果没有，就把表单里的维度拼起来！
+    let finalKeyword = body.keyword || body.prompt || body.query || body.searchQuery;
+
+    if (!finalKeyword) {
+      const region = joinList(body.targetRegions, '');
+      const industry = joinList(body.targetIndustries, '');
+      const persona = joinList(body.targetPersonas, '');
+      
+      // 拼装：比如 "德国 精密机械 CEO/总裁"
+      finalKeyword = `${region} ${industry} ${persona}`.trim();
     }
 
-    const body = await request.json().catch(() => ({}))
-
-    const targetCountry = joinList(
-      body.targetRegions,
-      body.targetCountry,
-      '未指定'
-    )
-    const targetIndustry = joinList(
-      body.targetIndustries,
-      body.targetIndustry,
-      '未指定'
-    )
-    const decisionMaker = joinList(
-      body.targetPersonas,
-      body.decisionMaker,
-      '未指定'
-    )
-    const pitch =
-      typeof body.pitch === 'string'
-        ? body.pitch.trim()
-        : typeof body.systemPrompt === 'string'
-          ? body.systemPrompt.trim()
-          : ''
-
-    if (!pitch) {
-      return NextResponse.json(
-        { error: 'pitch / systemPrompt 不能为空' },
-        { status: 400 }
-      )
+    if (!finalKeyword) {
+      console.error("[API 拦截] 无法提取有效搜索词。前端数据:", body);
+      return NextResponse.json({ error: '缺少必填参数: 目标配置为空' }, { status: 400 });
     }
 
-    const task = await prisma.novaTask.create({
-      data: {
-        userId: session.user.id,
-        targetCountry,
-        targetIndustry,
-        decisionMaker,
-        pitch,
-      },
-    })
+    const jobId = `NOVA-${Date.now()}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
 
-    const redis = getRedis()
-    if (redis) {
-      try {
-        await redis.lpush(QUEUE_KEY, task.id)
-      } catch (e) {
-        console.error('[nova/start] Redis LPUSH failed:', e)
-      }
-    } else {
-      console.warn('[nova/start] Redis 未配置，任务已入库但未入队')
-    }
+    // 🎯 投递任务
+    await novaQueue.add('start-nova', {
+      jobId,
+      userId: token.id,
+      keyword: finalKeyword // 泥头车现在会收到极其精准的指令
+    });
 
-    return NextResponse.json({
-      success: true,
-      task: {
-        id: task.id,
-        userId: task.userId,
-        targetCountry: task.targetCountry,
-        targetIndustry: task.targetIndustry,
-        decisionMaker: task.decisionMaker,
-        pitch: task.pitch,
-        status: task.status,
-        createdAt: task.createdAt,
-        updatedAt: task.updatedAt,
-      },
-      queued: Boolean(redis),
-    })
-  } catch (error) {
-    console.error('[nova/start]', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    console.log(`[主站发令台] 已将任务 [${finalKeyword}] 下发至远洋舰队队列，任务号: ${jobId}`);
+
+    return NextResponse.json({ success: true, jobId, message: '指令已下达，泥头车已出动' });
+
+  } catch (error: any) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
