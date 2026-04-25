@@ -78,6 +78,7 @@ model User {
   novaTasks           NovaTask[]
   deliveryLogs        DeliveryLog[]
   userLeads           UserLead[]
+  systemCostLogs      SystemCostLog[] // 新增：关联用户的真实成本消耗记录
 }
 
 // ─── Nova 战术配置任务（Dashboard 战术面板持久化）────────────────
@@ -119,11 +120,11 @@ model Wallet {
 }
 
 model UserAsset {
-  id         String   @id @default(uuid())
-  userId     String
-  assetType  String // 如 TEMPLATE_MECHANICAL, STRATEGY_PACK
+  id        String   @id @default(uuid())
+  userId    String
+  assetType String // 如 TEMPLATE_MECHANICAL, STRATEGY_PACK
   unlockedAt DateTime @default(now())
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([assetType])
@@ -147,7 +148,7 @@ model Domain {
   id             String    @id @default(uuid())
   userId         String
   domainName     String
-  status         String // ACTIVE, BANNED, PENDING_DNS
+  status         String // ACTIVE, BANNED, PENDING_DNS, PURCHASING, EMAIL_READY, WARMING_UP
   dailySentCount Int       @default(0)
   warmupEnabled  Boolean   @default(false) // 是否启用预热
   warmupDay      Int       @default(0) // 预热第几天（0 = 未启用）
@@ -156,13 +157,17 @@ model Domain {
   dailyLimit     Int       @default(20) // 预热期间每日上限
   sentToday      Int       @default(0) // 今日已发送数
   lastSentAt     DateTime? // 最后发送时间
+  
+  // 👇 下面这两个是咱们全自动引擎必须的关键字段！
+  emailAccount   String?   // 存放 cPanel 自动建好的邮箱账号 (例如 sales@xxx.com)
+  successId      String?   // 存放推送到 Success.ai 后的唯一账号 ID
+  
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
   user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
 }
-
 model Campaign {
   id                String        @id @default(uuid())
   userId            String
@@ -624,21 +629,21 @@ model LeadsCache {
 // ─── 用户额度表（独立配额追踪）──────────────────────────
 // 该表独立于 User 表，专门用于 LeadPilot 线索服务的配额管理
 // 
-// 套餐定价与额度对照表：
+// 套餐定价与额度对照表 (V2.0 更新)：
 // ┌─────────────┬────────┬─────────────┬─────────────┐
 // │   套餐       │  价格  │  线索上限    │  算力水箱    │
 // ├─────────────┼────────┼─────────────┼─────────────┤
-// │ BASIC       │  ¥299  │   300       │   50,000   │
-// │ PRO         │  ¥799  │   1,000     │   200,000  │
-// │ ENTERPRISE  │ ¥1,999 │   3,000     │   500,000  │
+// │ STARTER     │  ¥399  │   300       │   50,000   │
+// │ PRO         │  ¥999  │   1,000     │   200,000  │
+// │ MAX         │ ¥2,399 │   3,000     │   500,000  │
 // └─────────────┴────────┴─────────────┴─────────────┘
 model UserQuota {
   id           String   @id @default(uuid())
   userId       String   @unique
-  tier         String   @default("BASIC") // BASIC(¥299) | PRO(¥799) | ENTERPRISE(¥1999)
+  tier         String   @default("STARTER") // 默认改为 STARTER (与 pricing 对应)
   leadsBalance Int      @default(0) // 线索余额
-  leadsLimit   Int      @default(300) // 线索上限: BASIC=300, PRO=1000, ENTERPRISE=3000
-  tokensLimit  Int      @default(50000) // 算力上限: BASIC=50000, PRO=200000, ENTERPRISE=500000
+  leadsLimit   Int      @default(300) // 默认 STARTER 上限 300
+  tokensLimit  Int      @default(50000) // 默认 STARTER 上限 50,000
   apiCostTotal Float    @default(0) // 本月累计 API 消耗成本
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
@@ -757,4 +762,46 @@ model UserLead {
   @@index([country])
   @@index([createdAt])
   @@index([isUnlocked])
+}
+
+// ==========================================
+// 系统真实成本消耗流水表 (System Cost Ledger)
+// ==========================================
+model SystemCostLog {
+  id          String   @id @default(cuid())
+  provider    String   // 供应商，例如：'OPENAI', 'PROXYCURL', 'ZEROBOUNCE', 'ALIYUN_SMS'
+  feature     String?  // 触发的业务功能，例如：'GENERATE_COLD_EMAIL', 'LINKEDIN_SCRAPE'
+  userId      String?  // 是哪个用户触发的（方便以后算单客毛利 LTV/CAC）
+  
+  // 用量与成本
+  usageAmount Int      // 消耗的数量，例如：1500 (Tokens) 或 1 (次API调用)
+  usageUnit   String   // 计量单位，例如：'TOKEN', 'CREDIT', 'CALL'
+  costCny     Float    // 根据采购价折算出的【真实人民币成本】
+  costUsd     Float?   // 如果是海外API，可以记录原价美元成本
+  
+  createdAt   DateTime @default(now())
+
+  // 关联用户表（设为可选，因为有些可能是系统定时任务产生的成本）
+  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([provider])
+  @@index([createdAt])
+  @@index([userId])
+}
+
+// ============================================
+// Nova 监控节点配置 (动态可配置的健康探头)
+// ============================================
+model MonitoringNode {
+  id          String   @id @default(uuid())
+  name        String   // 节点名称，如：DeepSeek 主脑、阿里云 OSS
+  category    String   // 分组：AI_ENGINE, DATA_SOURCE, INFRA, PAYMENT, OUTREACH
+  envKey      String   // 依赖的环境变量名，如：DEEPSEEK_API_KEY
+  description String?  // 节点说明
+  isActive    Boolean  @default(true) // 是否启用监控
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([category])
+  @@index([isActive])
 }

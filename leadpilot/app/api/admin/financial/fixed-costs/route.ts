@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({ items })
 }
 
-/** POST /api/admin/financial/fixed-costs — 新增 */
+/** POST /api/admin/financial/fixed-costs — 新增基建 */
 export async function POST(request: NextRequest) {
   const auth = await requireAdminRole(['SUPER_ADMIN', 'FINANCE'])
   if (!auth.ok) return auth.response
@@ -42,7 +42,7 @@ export async function POST(request: NextRequest) {
   return NextResponse.json({ success: true, item })
 }
 
-/** PATCH /api/admin/financial/fixed-costs — 更新 */
+/** PATCH /api/admin/financial/fixed-costs — 更新基建 */
 export async function PATCH(request: NextRequest) {
   const auth = await requireAdminRole(['SUPER_ADMIN', 'FINANCE'])
   if (!auth.ok) return auth.response

@@ -3,9 +3,9 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  X, CreditCard, Loader2, Tag, CheckCircle2,
-  AlertCircle, Gift, ChevronRight, Star, Info,
-  QrCode, Smartphone, RefreshCw, CheckCheck
+  X, CreditCard, Loader2, CheckCircle2,
+  AlertCircle, ChevronRight, Star, Info,
+  QrCode, Smartphone
 } from 'lucide-react'
 import { useToast } from '@/components/ui/use-toast'
 import { IconRenderer, getIconById, type IconName } from '@/components/IconRenderer'
@@ -70,21 +70,11 @@ interface PaymentDialogProps {
   onPurchaseSuccess?: (product: PaymentDialogProduct) => void
 }
 
-interface CouponResult {
-  valid: boolean
-  code: string
-  discount: number
-  message: string
-}
-
 export function PaymentDialog({ isOpen, onClose, product, userSubscriptionTier, onPurchaseSuccess }: PaymentDialogProps) {
   const { toast } = useToast()
   const [billingCycle, setBillingCycle] = useState<BillingCycle>('monthly')
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('WECHAT_PAY')
   const [quantity, setQuantity] = useState(1)
-  const [couponCode, setCouponCode] = useState('')
-  const [couponLoading, setCouponLoading] = useState(false)
-  const [appliedCoupon, setAppliedCoupon] = useState<CouponResult | null>(null)
 
   // ─── 阶段六核心：支付状态机 ──────────────────────────────────────
   const [paymentStep, setPaymentStep] = useState<PaymentStep>('idle')
@@ -102,8 +92,6 @@ export function PaymentDialog({ isOpen, onClose, product, userSubscriptionTier, 
     setPaymentStep('idle')
     setPollCount(0)
     setQuantity(1)
-    setCouponCode('')
-    setAppliedCoupon(null)
     setBillingCycle('monthly')
   }
 
@@ -144,9 +132,7 @@ export function PaymentDialog({ isOpen, onClose, product, userSubscriptionTier, 
   }
 
   const calculateFinalPrice = () => {
-    const base = calculateTotal()
-    if (appliedCoupon && appliedCoupon.valid) return Math.max(0, base - appliedCoupon.discount)
-    return base
+    return calculateTotal() // 已移除优惠券扣减逻辑
   }
 
   const cycleLabel = {
@@ -172,37 +158,6 @@ export function PaymentDialog({ isOpen, onClose, product, userSubscriptionTier, 
 
   const isSubscriptionType = product.type === 'subscription'
   const isCustomType = product.id.includes('custom')
-
-  const handleApplyCoupon = async () => {
-    if (!couponCode.trim()) {
-      toast({ title: '请输入优惠券码', variant: 'destructive' })
-      return
-    }
-    setCouponLoading(true)
-    try {
-      await new Promise(resolve => setTimeout(resolve, 800))
-      if (couponCode.toUpperCase() === 'LEADPILOT20') {
-        const discount = Math.min(20, calculateTotal())
-        setAppliedCoupon({ valid: true, code: couponCode.toUpperCase(), discount, message: `已减免 ${discount}元` })
-        toast({ title: '优惠券验证成功', description: `已减免 ${discount}元` })
-      } else if (couponCode.toUpperCase() === 'FIRST50') {
-        const discount = Math.min(50, calculateTotal())
-        setAppliedCoupon({ valid: true, code: couponCode.toUpperCase(), discount, message: `首单优惠已减免 ${discount}元` })
-        toast({ title: '首单优惠验证成功', description: `已减免 ${discount}元` })
-      } else {
-        toast({ title: '优惠券无效', description: '请检查优惠券码是否正确', variant: 'destructive' })
-      }
-    } catch (e) {
-      toast({ title: '优惠券验证失败', variant: 'destructive' })
-    } finally {
-      setCouponLoading(false)
-    }
-  }
-
-  const handleRemoveCoupon = () => {
-    setAppliedCoupon(null)
-    setCouponCode('')
-  }
 
   // ─── 阶段六核心：启动扫码支付流程 ─────────────────────────────
   const startPaymentFlow = async () => {
@@ -272,37 +227,6 @@ export function PaymentDialog({ isOpen, onClose, product, userSubscriptionTier, 
     successTimerRef.current = null
     setPaymentStep('idle')
     setPollCount(0)
-  }
-
-  // ─── 兼容旧导出包直接购买逻辑（仅在 idle 阶段保留）─────────────
-  const handleConfirmPayment_Legacy = async () => {
-    if (isBlockedAddon) {
-      toast({ title: '增值服务仅面向正式订阅用户开放', description: '请先选择基础订阅方案', variant: 'destructive' })
-      return
-    }
-    try {
-      if (isExportType) {
-        const setsToBuy = Number(quantity)
-        const res = await fetch('/api/export/purchase', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ sets: setsToBuy }),
-        })
-        const data = await res.json()
-        if (!res.ok) throw new Error(data.message || '购买失败')
-        toast({ title: '购买成功', description: `已为您充值 ${data.creditsAdded.toLocaleString()} 个导出额度`, className: 'bg-emerald-500 border-emerald-600 text-white' })
-        setTimeout(() => {
-          onClose()
-          if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('refresh-user-data'))
-          onPurchaseSuccess?.(product)
-        }, 1500)
-        return
-      }
-      toast({ title: '订单创建成功', description: '正在跳转支付页面...' })
-      setTimeout(() => { onClose(); onPurchaseSuccess?.(product) }, 1000)
-    } catch (e: any) {
-      toast({ title: '错误', description: e.message, variant: 'destructive' })
-    }
   }
 
   // 判断当前按钮是否禁用
@@ -469,36 +393,7 @@ export function PaymentDialog({ isOpen, onClose, product, userSubscriptionTier, 
                         </div>
                       )}
 
-                      <div className="mb-6">
-                        <h3 className="text-xs font-bold text-slate-300 uppercase tracking-widest mb-3 flex items-center gap-2">
-                          <Tag className="w-4 h-4" />
-                          优惠券
-                        </h3>
-                        {appliedCoupon && appliedCoupon.valid ? (
-                          <div className="p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-xl">
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-3">
-                                <div className="w-10 h-10 rounded-lg bg-emerald-500/20 flex items-center justify-center"><CheckCircle2 className="w-5 h-5 text-emerald-400" /></div>
-                                <div>
-                                  <p className="text-emerald-300 text-sm font-semibold">{appliedCoupon.code}</p>
-                                  <p className="text-emerald-400/70 text-xs">{appliedCoupon.message}</p>
-                                </div>
-                              </div>
-                              <button onClick={handleRemoveCoupon} className="text-slate-400 hover:text-slate-300 text-xs">移除</button>
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="flex gap-2">
-                            <input type="text" value={couponCode} onChange={e => setCouponCode(e.target.value.toUpperCase())} placeholder="输入优惠券码" className="flex-1 px-4 py-3 bg-slate-800/50 border border-slate-700/50 rounded-xl text-white text-sm placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500" disabled={couponLoading} />
-                            <button onClick={handleApplyCoupon} disabled={couponLoading || !couponCode.trim()} className="px-5 py-3 bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl text-white text-sm font-bold transition-all flex items-center gap-2">
-                              {couponLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <><span>应用</span><ChevronRight className="w-4 h-4" /></>}
-                            </button>
-                          </div>
-                        )}
-                        <p className="text-xs text-slate-500 mt-2">
-                          试试 <span className="text-blue-400 cursor-pointer hover:underline" onClick={() => setCouponCode('LEADPILOT20')}>LEADPILOT20</span> 或 <span className="text-blue-400 cursor-pointer hover:underline" onClick={() => setCouponCode('FIRST50')}>FIRST50</span>
-                        </p>
-                      </div>
+                      {/* 优惠券模块已彻底移除 */}
 
                       <div className="mb-6">
                         <h3 className="text-xs font-bold text-slate-300 uppercase tracking-widest mb-3">支付方式</h3>
@@ -517,12 +412,6 @@ export function PaymentDialog({ isOpen, onClose, product, userSubscriptionTier, 
                       </div>
 
                       <div className="mb-6 p-5 bg-slate-800/50 border border-slate-700/50 rounded-xl">
-                        {appliedCoupon && appliedCoupon.valid && (
-                          <div className="flex items-baseline justify-between mb-2">
-                            <span className="text-slate-400 text-sm">原价</span>
-                            <span className="text-slate-500 line-through text-sm">{isExportType ? exportSets * 99 : calculateTotal()}元</span>
-                          </div>
-                        )}
                         <div className="flex items-baseline justify-between">
                           <span className="text-slate-300 text-sm">应付金额</span>
                           <div className="flex items-baseline gap-2">
@@ -533,7 +422,6 @@ export function PaymentDialog({ isOpen, onClose, product, userSubscriptionTier, 
                           <div className="mt-3 pt-3 border-t border-slate-700/50">
                             <p className="text-xs text-slate-500">
                               {exportSets} 套 × 1000 额度 = {exportSets * 1000} 个导出额度
-                              {appliedCoupon && appliedCoupon.valid && <span className="text-emerald-400 ml-2">已减 {appliedCoupon.discount}元</span>}
                             </p>
                           </div>
                         )}
@@ -541,7 +429,6 @@ export function PaymentDialog({ isOpen, onClose, product, userSubscriptionTier, 
                           <div className="mt-3 pt-3 border-t border-slate-700/50">
                             <p className="text-xs text-slate-500">
                               {quantity} 份 × ¥{safeUnitPrice} = {quantity * (product.perPack || 1)} 家
-                              {appliedCoupon && appliedCoupon.valid && <span className="text-emerald-400 ml-2">已减 {appliedCoupon.discount}元</span>}
                             </p>
                           </div>
                         )}

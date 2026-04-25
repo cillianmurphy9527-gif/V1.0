@@ -1,85 +1,86 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireAdminRole } from '@/lib/admin-auth'
 
-/**
- * 获取财务统计数据
- */
-export async function GET(request: NextRequest) {
+export const dynamic = 'force-dynamic'
+
+export async function GET() {
   try {
-    const auth = await requireAdminRole(['SUPER_ADMIN', 'FINANCE'])
+    const auth = await requireAdminRole(['SUPER_ADMIN', 'FINANCE', 'OPS'])
     if (!auth.ok) return auth.response
 
-    const { searchParams } = request.nextUrl
-    const range = searchParams.get('range') || '30days'
-
-    // 计算日期范围
     const now = new Date()
-    let startDate = new Date()
     
-    switch (range) {
-      case '7days':
-        startDate.setDate(now.getDate() - 7)
-        break
-      case '30days':
-        startDate.setDate(now.getDate() - 30)
-        break
-      case '90days':
-        startDate.setDate(now.getDate() - 90)
-        break
-      default:
-        startDate = new Date('2020-01-01')
+    // ─── 1. 精确定义时间窗口 (严格使用 近1天 / 近7天 / 近30天) ───
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    
+    const startOf7Days = new Date(startOfToday)
+    startOf7Days.setDate(startOf7Days.getDate() - 6) // 包含今天在内共7天
+    
+    const startOf30Days = new Date(startOfToday)
+    startOf30Days.setDate(startOf30Days.getDate() - 29) // 包含今天在内共30天
+
+    // ─── 2. 计算动态营收与 API 真实消耗 ───
+    const getFinancials = async (startDate: Date) => {
+      // 算收入与退款
+      const orders = await prisma.order.findMany({ where: { createdAt: { gte: startDate }, status: 'PAID' } })
+      const refunds = await prisma.order.findMany({ where: { createdAt: { gte: startDate }, status: 'REFUNDED' } })
+      const revenue = orders.reduce((sum, o) => sum + o.amount, 0)
+      
+      // 算真实 API 消耗（按实际发生时间）
+      const apiLogs = await prisma.systemCostLog.aggregate({
+        where: { createdAt: { gte: startDate } },
+        _sum: { costCny: true }
+      })
+      const apiCost = apiLogs._sum.costCny || 0
+
+      return { revenue, ordersCount: orders.length, refundsCount: refunds.length, apiCost }
     }
 
-    // 统计订单数据
-    const orders = await prisma.order.findMany({
-      where: {
-        createdAt: { gte: startDate },
-        status: 'PAID'
-      }
+    const [todayData, weekData, monthData] = await Promise.all([
+      getFinancials(startOfToday),
+      getFinancials(startOf7Days),
+      getFinancials(startOf30Days)
+    ])
+
+    // ─── 3. 精确计算固定基建摊销 ───
+    const fixedCostsList = await prisma.fixedCost.findMany({ where: { isActive: true } })
+    
+    // 计算所有资产加起来的“日均消耗总量”
+    let exactDailyFixedCost = 0
+    fixedCostsList.forEach(cost => {
+      const daily = cost.billingCycle === 'YEARLY' ? (cost.amount / 365) : (cost.amount / 30);
+      exactDailyFixedCost += daily;
     })
 
-    const refunds = await prisma.order.findMany({
-      where: {
-        createdAt: { gte: startDate },
-        status: 'REFUNDED'
-      }
-    })
+    // 严格按照滚动天数相乘！绝不再受“今天是几号/周几”的干扰！
+    const todayFixed = exactDailyFixedCost * 1
+    const weekFixed = exactDailyFixedCost * 7
+    const monthFixed = exactDailyFixedCost * 30
 
-    const totalRevenue = orders.reduce((sum, order) => sum + order.amount, 0)
-    const totalRefundAmount = refunds.reduce((sum, order) => sum + order.amount, 0)
-    const totalOrders = orders.length
-    const averageOrderValue = totalOrders > 0 ? totalRevenue / totalOrders : 0
-
-    // 本月收入
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
-    const monthOrders = await prisma.order.findMany({
-      where: {
-        createdAt: { gte: monthStart },
-        status: 'PAID'
+    // ─── 4. 组装三维报表 ───
+    const buildReport = (data: any, fixed: number) => {
+      const totalCost = data.apiCost + fixed
+      const grossProfit = data.revenue - totalCost
+      return {
+        revenue: Number(data.revenue.toFixed(2)),
+        ordersCount: data.ordersCount,
+        refundsCount: data.refundsCount,
+        apiCost: Number(data.apiCost.toFixed(2)),
+        fixedCost: Number(fixed.toFixed(2)),
+        totalCost: Number(totalCost.toFixed(2)),
+        grossProfit: Number(grossProfit.toFixed(2)),
+        profitMargin: data.revenue > 0 ? Number(((grossProfit / data.revenue) * 100).toFixed(1)) : 0
       }
-    })
-    const monthlyRevenue = monthOrders.reduce((sum, order) => sum + order.amount, 0)
-
-    // 待审核退款
-    const pendingRefunds = await prisma.order.count({
-      where: {
-        refundStatus: 'REQUESTED'
-      }
-    })
+    }
 
     return NextResponse.json({
-      totalRevenue,
-      totalOrders,
-      totalRefunds: refunds.length,
-      averageOrderValue,
-      monthlyRevenue,
-      pendingRefunds
+      today: buildReport(todayData, todayFixed),
+      week: buildReport(weekData, weekFixed),
+      month: buildReport(monthData, monthFixed)
     })
+
   } catch (error: any) {
-    console.error('❌ [财务API] 错误:', error)
-    return NextResponse.json({ 
-      error: error?.message || '获取财务数据失败'
-    }, { status: 500 })
+    return NextResponse.json({ error: error.message || '获取财务数据失败' }, { status: 500 })
   }
 }

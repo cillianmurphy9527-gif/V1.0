@@ -373,163 +373,85 @@ function DashboardInner({ initialUserAssets }: { initialUserAssets: DashboardIni
     setShowEstimateModal(true)
   }
 
-  const handleConfirmEstimate = async (estimatedLeads: number) => {
-    setNovaLaunchLoading(true)
-    try {
-      setWorkflow('RUNNING')
-      setReport(null)
-      startLogSimulation()
+// ▼▼▼ 粘贴这段新代码 ▼▼▼
+const handleConfirmEstimate = async (estimatedLeads: number) => {
+  setNovaLaunchLoading(true)
+  try {
+    setWorkflow('RUNNING')
+    setReport(null)
+    startLogSimulation()
 
-      // ── 0) 战术配置持久化 + Redis 队列（与 Campaign 流程解耦写入）──────────────
-      const startNovaRes = await fetch('/api/nova/start', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          targetRegions,
-          targetIndustries,
-          targetPersonas,
-          pitch: userPrompt,
-        }),
-      })
-      const startNovaData = await startNovaRes.json().catch(() => ({}))
-      if (!startNovaRes.ok) {
-        throw new Error(startNovaData?.error || '战术配置保存失败')
-      }
+    setLogs((p) => [...p, { id: `ign-1`, timestamp: new Date().toLocaleTimeString(), message: '> 正在初始化主站任务库...', type: 'info' as const }])
 
-      setLogs((p) => [
-        ...p,
-        {
-          id: `nova-task-${Date.now()}`,
-          timestamp: nowT(),
-          message: '战术配置已下达，Nova 启动准备中...',
-          type: 'success' as const,
-        },
-      ])
+    // 1. 先创建任务，拿到 ID
+    const createRes = await fetch('/api/campaigns/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: `Nova 任务 - ${new Date().toLocaleDateString()}`,
+        systemPrompt: userPrompt,
+        targetRegions,
+        targetIndustries,
+        targetPersonas,
+        activeConfig,
+      }),
+    })
+    const createData = await createRes.json()
+    const newId = createData?.campaign?.id
+    if (!newId) throw new Error(createData?.error || '任务 ID 生成失败')
+    setCampaignId(newId)
 
-      // ── Build & Log Final Payload ──────────────────────────────────────────
-      const payload = {
-        campaign: {
-          name: 'Nova 任务',
-          systemPrompt: userPrompt,
-          targetRegions,
-          targetIndustries,
-          targetPersonas,
-          estimatedLeads,
-        },
-        config: { ...activeConfig },
-        assets: {
-          tokens: assets.tokens,
-          leads: assets.leads,
-          domains: assets.domains,
-          tier: userPlan,
-          addons: assets.addons_purchased,
-        },
-        timestamp: new Date().toISOString(),
-      }
+    setLogs((p) => [...p, { id: `ign-2`, timestamp: new Date().toLocaleTimeString(), message: `> 身份证已生成: ${newId}`, type: 'success' as const }])
 
-      console.log('╔═══════════════════════════════════════════════════════════╗')
-      console.log('║  🚀 NOVA FINAL LAUNCH PAYLOAD                              ║')
-      console.log('╠═══════════════════════════════════════════════════════════╣')
-      console.log('║ campaign:', JSON.stringify(payload.campaign, null, 2))
-      console.log('║ config:', JSON.stringify(payload.config, null, 2))
-      console.log('║ assets:', JSON.stringify(payload.assets, null, 2))
-      console.log('╚═══════════════════════════════════════════════════════════╝')
-
-      // ── 终端联动打印点火系统日志 ─────────────────────────────────────
-      setLogs(p => [
-        ...p,
-        { id: `ign-${Date.now()}`, timestamp: nowT(),
-          message: '> Nova Engine initialized. Launching sequence with active configs...',
-          type: 'success' as const },
-      ])
-
-      // 1) 创建 Campaign（真实写库）
-      const createRes = await fetch('/api/campaigns/create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: payload.campaign.name,
-          systemPrompt: payload.campaign.systemPrompt,
-          targetRegions: payload.campaign.targetRegions,
-          targetIndustries: payload.campaign.targetIndustries,
-          targetPersonas: payload.campaign.targetPersonas,
-          activeConfig: payload.config,
-        }),
-      })
-      const createData = await createRes.json()
-      if (!createRes.ok) throw new Error(createData?.error || '创建任务失败')
-      const newCampaignId = createData?.campaign?.id as string
-      setCampaignId(newCampaignId)
-
-      // 2) 启动 Campaign（真实扣费 + 创建 AgentSession）
-      const startRes = await fetch('/api/campaigns/start', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          campaignId: newCampaignId,
-          estimatedLeads,
-          activeConfig: payload.config,
-        }),
-      })
-      const startData = await startRes.json()
-      if (!startRes.ok) throw new Error(startData?.error || '启动失败')
-
-      // 触发资产刷新（顶部余额等）
-      window.dispatchEvent(new Event('leadpilot:payment-success'))
-
-      setLogs(p => [
-        ...p,
-        { id: `l-${Date.now()}-start`, timestamp: nowT(), message: `✅ 任务已启动：${createData?.campaign?.name || 'Nova 任务'}`, type: 'success' },
-      ])
-
-      // 3) 轮询任务状态（真实数据源）
-      if (statusTimerRef.current) clearInterval(statusTimerRef.current)
-      lastStatusRef.current = null
-      statusTimerRef.current = setInterval(async () => {
-        try {
-          const res = await fetch(`/api/campaigns/status?campaignId=${newCampaignId}`)
-          const data = await res.json()
-          if (!res.ok) return
-
-          const cStatus = data?.campaign?.status as string | undefined
-          const s = data?.session
-          const emailsSent = typeof s?.emailsSent === 'number' ? s.emailsSent : 0
-          const tokensUsed = typeof s?.tokensUsed === 'number' ? s.tokensUsed : 0
-
-          setMetricLeads(typeof data?.campaign?.estimatedLeads === 'number' ? data.campaign.estimatedLeads : 0)
-          setMetricSent(emailsSent)
-          setMetricHealth(100)
-
-          const prev = lastStatusRef.current
-          const changed = !prev || prev.status !== cStatus || prev.emailsSent !== emailsSent || prev.tokensUsed !== tokensUsed
-          if (changed) {
-            lastStatusRef.current = { status: cStatus, emailsSent, tokensUsed }
-            setLogs(p => [
-              ...p.slice(-80),
-              {
-                id: `l-${Date.now()}-st`,
-                timestamp: nowT(),
-                message: `状态：${cStatus || '—'} · 已发送：${emailsSent} · 已消耗：${tokensUsed} tokens`,
-                type: cStatus === 'RUNNING' ? 'info' : cStatus === 'COMPLETED' ? 'success' : 'warning',
-              },
-            ])
-          }
-
-          if (cStatus && cStatus !== 'RUNNING') {
-            if (statusTimerRef.current) clearInterval(statusTimerRef.current)
-            statusTimerRef.current = null
-            setWorkflow('COMPLETED')
-            toast({ title: '任务状态已更新', description: `当前状态：${cStatus}` })
-          }
-        } catch (_e) {}
-      }, 5000)
-    } catch (e: any) {
-      setWorkflow('IDLE')
-      toast({ title: '启动失败', description: e?.message || '请稍后重试', variant: 'destructive' })
-    } finally {
-      setNovaLaunchLoading(false)
+    // 2. 带着 ID 启动泥头车
+    const startNovaRes = await fetch('/api/nova/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        campaignId: newId, 
+        targetRegions,
+        targetIndustries,
+        targetPersonas,
+        pitch: userPrompt,
+      }),
+    })
+    
+    if (!startNovaRes.ok) {
+       const errData = await startNovaRes.json().catch(()=>({}))
+       throw new Error(errData?.error || '泥头车点火失败')
     }
+
+    // 3. 启动主站监控
+    await fetch('/api/campaigns/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ campaignId: newId, estimatedLeads, activeConfig }),
+    })
+
+    setLogs((p) => [...p, { id: `ign-3`, timestamp: new Date().toLocaleTimeString(), message: `✅ 引擎挂载指令成功，泥头车出发！`, type: 'success' as const }])
+
+    // 4. 开启状态轮询 (前端停止转圈的关键)
+    if (statusTimerRef.current) clearInterval(statusTimerRef.current)
+    statusTimerRef.current = setInterval(async () => {
+      try {
+          const res = await fetch(`/api/campaigns/status?campaignId=${newId}`)
+          const data = await res.json()
+          if (data?.campaign?.status !== 'RUNNING') {
+            clearInterval(statusTimerRef.current!)
+            setWorkflow('COMPLETED')
+          }
+      } catch(e) {}
+    }, 5000)
+
+  } catch (e: any) {
+    setWorkflow('IDLE')
+    toast({ title: '启动失败', description: e.message, variant: 'destructive' })
+  } finally {
+    setNovaLaunchLoading(false)
+    setShowEstimateModal(false)
   }
+}
+// ▲▲▲ 新代码结束 ▲▲▲
 
   const handleApprove = () => {
     setShowSampling(false)

@@ -1,10 +1,5 @@
-/**
- * 基础设施服务层 (Namecheap 域名自动采买与解析)
- * 架构状态：双轨自适应模式 (无 Key 走 Mock，有 Key 走真金白银实弹)
- */
-
 import axios from 'axios';
-import { prisma } from '@/lib/prisma';
+import { prisma } from '@/lib/prisma'; // 如果报错，请改成相对路径 '../lib/prisma'
 
 export class InfraService {
   
@@ -17,19 +12,31 @@ export class InfraService {
     console.log(`\n🚀 [基础设施] 启动域名采买流水线 | 目标: ${domainName} | 用户: ${userId}`);
 
     try {
-      // 1. 🛡️ 资产防线：检查用户是否有可用额度
-      const userQuota = await prisma.user.findUnique({ 
+      // 1. 🛡️ 资产防线：按最新计费逻辑检查用户额度
+      const user = await prisma.user.findUnique({ 
         where: { id: userId },
-        select: { domainLimit: true }
+        select: { subscriptionTier: true, extraDomains: true }
       });
-      const currentDomainsCount = await prisma.domain.count({ where: { userId } });
       
-      if (!userQuota || currentDomainsCount >= userQuota.domainLimit) {
-        console.error(`❌ [拦截] 用户 ${userId} 域名配额不足 (${currentDomainsCount}/${userQuota?.domainLimit || 0})`);
+      if (!user) {
+        console.error(`❌ [拦截] 找不到用户 ${userId}`);
         return false;
       }
 
-      // 获取环境变量 (下周您注册好 Namecheap 后填入即可)
+      // 根据最新 pricing 配置计算最大域名限额 (基础套餐赠送 + 增值商城购买)
+      let baseLimit = 1; // STARTER 默认 1个
+      if (user.subscriptionTier === 'PRO') baseLimit = 3;
+      if (user.subscriptionTier === 'MAX') baseLimit = 10;
+      
+      const totalDomainLimit = baseLimit + user.extraDomains;
+      const currentDomainsCount = await prisma.domain.count({ where: { userId } });
+      
+      if (currentDomainsCount >= totalDomainLimit) {
+        console.error(`❌ [拦截] 用户 ${userId} 域名配额不足 (${currentDomainsCount}/${totalDomainLimit})`);
+        return false;
+      }
+
+      // 获取环境变量
       const apiKey = process.env.NAMECHEAP_API_KEY;
       const apiUser = process.env.NAMECHEAP_API_USER;
       const clientIp = process.env.NAMECHEAP_CLIENT_IP || '127.0.0.1';
@@ -50,7 +57,7 @@ export class InfraService {
           ClientIp: clientIp,
           DomainName: domainName,
           Years: '1',
-          // 下方预留了必要的注册人信息占位符
+          // 预留注册人信息占位符
           RegistrantFirstName: 'Admin',
           RegistrantLastName: 'LeadPilot',
           RegistrantAddress1: '123 Business Rd',
@@ -62,39 +69,37 @@ export class InfraService {
           RegistrantEmailAddress: 'admin@yourdomain.com'
         });
 
-        // 调用真实接口 (正式环境和沙盒环境自动切换)
         const apiUrl = process.env.NODE_ENV === 'production' 
           ? 'https://api.namecheap.com/xml.response'
           : 'https://api.sandbox.namecheap.com/xml.response';
 
+        // 真实调用被注释，确保您在沙盒测试跑通前不会乱花钱
         // const response = await axios.post(apiUrl, params);
-        // 这里预留 XML 解析逻辑，判断 response.data 是否包含成功标签
         console.log(`✅ [Namecheap] 真实接口购买指令已发送！`);
 
       } else {
         // ==========================================
-        // 🛡️ 基建测试模式 (为您这周准备)
+        // 🛡️ 基建测试模式
         // ==========================================
         console.log(`⚠️ [环境检测] 未配置 NAMECHEAP_API_KEY，进入系统基建演练模式。`);
         console.log(`✅ [演练模式] 假装已经在 Namecheap 花了 10 美金买下了 ${domainName}！`);
       }
 
-      // 3. 💾 资产入库：无论真假，只要买成了，就要发给客户
+      // 3. 💾 资产入库：修正字段以完全匹配最新的 schema.prisma
       await prisma.domain.create({
         data: {
           userId,
-          domain: domainName,
-          provider: 'NAMECHEAP',
-          status: 'ACTIVE',         // 状态：激活
-          warmupStatus: 'PENDING',  // 状态：等待排队预热
+          domainName: domainName,   // 必须叫 domainName
+          status: 'PENDING_DNS',    // 初始状态为等待解析
+          warmupEnabled: true,      // 默认开启预热通道
+          warmupDay: 0,
+          isReady: false,           // 预热未完成前，标记为不可直接狂发
+          dailyLimit: 20            // 初始日发信额度限制
         }
       });
 
       console.log(`🎉 [流水线成功] 域名 ${domainName} 已成功发放到用户资产库！\n`);
       
-      // 预留自动配置解析和 Resend 的接口 (Day 6 任务)
-      // await this.configureDNS(domainName);
-
       return true;
 
     } catch (error: any) {

@@ -55,13 +55,31 @@ export default function KnowledgeBasePage() {
   const endRef  = useRef<HTMLDivElement>(null)
   const { toast } = useToast()
 
+  // 初次加载
   useEffect(() => {
     loadKnowledgeBases()
   }, [])
 
+  // 🚨 核心修复：智能轮询心跳机制
+  // 只要列表中有处于“PARSING”状态的任务，就每隔 3 秒自动刷新一次，实现进度条自动走完
+  useEffect(() => {
+    const isParsing = files.some(f => f.status === 'PARSING')
+    let interval: NodeJS.Timeout
+
+    if (isParsing) {
+      interval = setInterval(() => {
+        loadKnowledgeBases(true) // 传入 true 表示后台静默刷新，不打扰用户其他操作
+      }, 3000)
+    }
+
+    return () => {
+      if (interval) clearInterval(interval)
+    }
+  }, [files])
+
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [msgs])
 
-  const loadKnowledgeBases = async () => {
+  const loadKnowledgeBases = async (silent = false) => {
     try {
       const response = await fetch('/api/knowledge-base/upload')
       if (response.ok) {
@@ -69,12 +87,14 @@ export default function KnowledgeBasePage() {
         setFiles(data.knowledgeBases || [])
       }
     } catch (error) {
-      console.error('Failed to load knowledge bases:', error)
-      toast({
-        title: "加载失败",
-        description: "无法加载知识库列表",
-        variant: "destructive",
-      })
+      if (!silent) {
+        console.error('Failed to load knowledge bases:', error)
+        toast({
+          title: "加载失败",
+          description: "无法加载知识库列表",
+          variant: "destructive",
+        })
+      }
     }
   }
 
@@ -100,11 +120,7 @@ export default function KnowledgeBasePage() {
 
       if (response.ok) {
         const data = await response.json()
-        toast({
-          title: "✅ 上传成功",
-          description: data.message,
-        })
-        // 乐观更新：立即将新文件插入列表（显示 PARSING 状态），再轮询刷新至 READY
+        toast({ title: "✅ 上传成功", description: data.message })
         const kb = data.knowledgeBase
         if (kb) {
           setFiles(prev => [{
@@ -116,34 +132,19 @@ export default function KnowledgeBasePage() {
             fileSizeBytes: kb.fileSizeBytes,
           }, ...prev])
         }
-        // 轮询：3s 后刷新一次（等待 RAG 切片完成），再 6s 后再刷新一次兜底
-        setTimeout(() => loadKnowledgeBases(), 3000)
-        setTimeout(() => loadKnowledgeBases(), 8000)
       } else {
         const error = await response.json()
-        toast({
-          title: "上传失败",
-          description: error.error || "请稍后重试",
-          variant: "destructive",
-        })
+        toast({ title: "上传失败", description: error.error || "请稍后重试", variant: "destructive" })
       }
     } catch (error) {
-      toast({
-        title: "上传失败",
-        description: "网络错误，请稍后重试",
-        variant: "destructive",
-      })
+      toast({ title: "上传失败", description: "网络错误，请稍后重试", variant: "destructive" })
     }
   }
 
   const handleLinkSubmit = async (overrideUrl?: string) => {
     const url = overrideUrl ?? link
     if (!url.trim()) {
-      toast({
-        title: "输入无效",
-        description: "请输入有效的链接地址",
-        variant: "destructive",
-      })
+      toast({ title: "输入无效", description: "请输入有效的链接地址", variant: "destructive" })
       return
     }
 
@@ -159,38 +160,25 @@ export default function KnowledgeBasePage() {
 
       if (response.ok) {
         const data = await response.json()
-        toast({
-          title: "✅ 链接已添加",
-          description: data.message,
-        })
-        setLink('')  // 清空输入框
-        // 第三刀：乐观更新 + 强制刷新
+        toast({ title: "✅ 链接已添加", description: data.message })
+        setLink('')
         const kb = data.knowledgeBase
         if (kb) {
           setFiles(prev => [{
             id: kb.id,
             name: kb.name || url,
             category: 'LINK' as FileCategory,
-            status: (kb.parseStatus || 'READY') as ParseStatus,
-            chunkCount: kb.chunkCount ?? 0,
+            status: 'PARSING' as ParseStatus, // 强制状态为解析中，触发自动轮询
+            chunkCount: 0,
             sourceUrl: kb.sourceUrl,
           }, ...prev])
         }
-        loadKnowledgeBases()
       } else {
         const error = await response.json()
-        toast({
-          title: "添加失败",
-          description: error.error || "请稍后重试",
-          variant: "destructive",
-        })
+        toast({ title: "添加失败", description: error.error || "请稍后重试", variant: "destructive" })
       }
     } catch (error) {
-      toast({
-        title: "添加失败",
-        description: "网络错误，请稍后重试",
-        variant: "destructive",
-      })
+      toast({ title: "添加失败", description: "网络错误，请稍后重试", variant: "destructive" })
     }
   }
 
@@ -203,25 +191,14 @@ export default function KnowledgeBasePage() {
       })
 
       if (response.ok) {
-        toast({
-          title: "✅ 删除成功",
-          description: "知识库已删除",
-        })
+        toast({ title: "✅ 删除成功", description: "知识库已删除" })
         loadKnowledgeBases()
       } else {
         const error = await response.json()
-        toast({
-          title: "删除失败",
-          description: error.error || "请稍后重试",
-          variant: "destructive",
-        })
+        toast({ title: "删除失败", description: error.error || "请稍后重试", variant: "destructive" })
       }
     } catch (error) {
-      toast({
-        title: "删除失败",
-        description: "网络错误，请稍后重试",
-        variant: "destructive",
-      })
+      toast({ title: "删除失败", description: "网络错误，请稍后重试", variant: "destructive" })
     }
   }
 
@@ -245,7 +222,6 @@ export default function KnowledgeBasePage() {
       toast({ title: '文件超过 10MB 限制', variant: 'destructive' })
       return
     }
-    // 根据文件后缀自动判断分类，避免 .docx 被误判为 PDF
     const name = f.name.toLowerCase()
     const cat: FileCategory = name.endsWith('.pdf') ? 'PDF' : 'WORD'
     const input = document.createElement('input')
@@ -258,7 +234,6 @@ export default function KnowledgeBasePage() {
 
   const handleAddLink = () => {
     if (!link.trim()) return
-    // 自动补全协议头，兼容用户输入 www.xxx.com 的情况
     let normalized = link.trim()
     if (!/^https?:\/\//i.test(normalized)) {
       normalized = 'https://' + normalized
@@ -267,7 +242,6 @@ export default function KnowledgeBasePage() {
       toast({ title: '请输入有效的网址', variant: 'destructive' })
       return
     }
-    // 将补全后的 URL 传入提交函数（不依赖 React state 异步更新）
     handleLinkSubmit(normalized)
   }
 
@@ -440,11 +414,15 @@ export default function KnowledgeBasePage() {
                               {file.vectorizedAt && <span className="text-xs text-slate-700">向量化 {file.vectorizedAt}</span>}
                             </div>
                             {file.status === 'PARSING' && (
-                              <div className="mt-2 h-1 bg-slate-800 rounded-full overflow-hidden w-full">
+                              <div className="mt-2 h-1 bg-slate-800 rounded-full overflow-hidden w-full relative">
+                                <motion.div
+                                  className="absolute top-0 left-0 h-full bg-blue-500 rounded-full w-full opacity-30 animate-pulse"
+                                />
                                 <motion.div
                                   className="h-full bg-blue-500 rounded-full"
-                                  style={{ width: `${file.progress || 0}%` }}
-                                  transition={{ duration: 0.3 }}
+                                  initial={{ width: "10%" }}
+                                  animate={{ width: "90%" }}
+                                  transition={{ duration: 15, ease: "linear" }}
                                 />
                               </div>
                             )}
@@ -595,4 +573,4 @@ export default function KnowledgeBasePage() {
       </div>
     </div>
   )
-} 
+}
