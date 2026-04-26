@@ -1,117 +1,73 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { Queue } from 'bullmq';
+import Redis from 'ioredis';
 
-const NOVA_SECRET = process.env.NOVA_WEBHOOK_SECRET || 'leadpilot-super-secret-2026';
+const connection = new Redis({
+  host: process.env.REDIS_HOST || '127.0.0.1',
+  port: parseInt(process.env.REDIS_PORT || '6379'),
+  maxRetriesPerRequest: null,
+});
+const aiEmailQueue = new Queue('ai-email-jobs', { connection });
+const NOVA_SECRET = process.env.NOVA_WEBHOOK_SECRET || 'leadpilot_dev_secret_123';
 
 export async function POST(req: NextRequest) {
   try {
     const authHeader = req.headers.get('authorization');
-    if (authHeader !== `Bearer ${NOVA_SECRET}`) {
+    if (authHeader?.replace('Bearer ', '').trim() !== NOVA_SECRET) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const payload = await req.json();
-    const { action, campaignId, taskId, lead, status } = payload;
+    const { event, campaignId, lead, total } = await req.json();
+    if (!campaignId) return NextResponse.json({ error: 'Missing ID' });
+
+    console.log(`[Webhook] Event: ${event} | Campaign: ${campaignId}`);
+
+    const campaign = await prisma.campaign.findUnique({ where: { id: campaignId } });
+    if (!campaign) return NextResponse.json({ error: 'Not Found' });
+
+    if (event === 'LEAD_SYNC' && lead) {
+       // 1. 🎯 扣除线索额度 (UserQuota)
+       await prisma.userQuota.update({
+           where: { userId: campaign.userId },
+           data: { leadsBalance: { decrement: 1 } }
+       }).catch(() => console.log('UserQuota Update Fail'));
+
+       // 2. 🎯 扣除 AI 算力 (User 表)
+       await prisma.user.update({
+           where: { id: campaign.userId },
+           data: { tokenBalance: { decrement: 100 } }
+       }).catch(() => console.log('User Token Update Fail'));
+
+       // 3. 🔒 入库强制马赛克锁
+       await prisma.userLead.create({
+          data: {
+              userId: campaign.userId,
+              companyName: lead.companyName || 'Unknown',
+              contactName: lead.contactName || 'Manager',
+              email: lead.email, 
+              website: lead.domain,
+              source: 'NOVA_ENGINE',
+              isUnlocked: false // 🌟 核心：写死 false
+          }
+       });
+       
+       await prisma.lead.create({
+         data: { campaignId, email: lead.email, status: 'VERIFIED', websiteData: JSON.stringify(lead) }
+       });
+    } 
     
-    // 兼容泥头车传过来的不同 ID 命名
-    const targetId = campaignId || taskId;
-
-    if (!targetId) {
-      return NextResponse.json({ error: 'Missing target ID' }, { status: 400 });
+    else if (event === 'TASK_COMPLETED') {
+       console.log(`[Flow] Success! Total: ${total}. Waking up AI Worker...`);
+       // 只有挖到线索才写信
+       if (Number(total) > 0) {
+           await aiEmailQueue.add('generate-emails', { campaignId }, { removeOnComplete: true });
+       }
+       await prisma.campaign.update({ where: { id: campaignId }, data: { status: 'COMPLETED' }});
     }
 
-    // 1. 寻找任务的归属用户 (可能是 NovaTask 或 Campaign)
-    let userId = '';
-    const task = await prisma.novaTask.findUnique({ where: { id: targetId } });
-    if (task) {
-      userId = task.userId;
-    } else {
-      const camp = await prisma.campaign.findUnique({ where: { id: targetId } });
-      if (camp) userId = camp.userId;
-    }
-
-    if (!userId) {
-      console.log(`⚠️ 找不到目标ID ${targetId} 对应的用户，废弃本次推送`);
-      return NextResponse.json({ error: 'User not found' }, { status: 404 });
-    }
-
-    // 2. 核心路由处理
-    switch (action) {
-      case 'LEAD_SYNC':
-        if (lead) {
-          // 🟢 修复1：正确写入目标线索库 (UserLead)
-          const savedLead = await prisma.userLead.upsert({
-            where: {
-              userId_email: { userId, email: String(lead.email) }
-            },
-            update: {
-              companyName: String(lead.companyName || '未知公司'),
-              contactName: String(lead.contactName || ''),
-            },
-            create: {
-              userId: userId,
-              email: String(lead.email),
-              companyName: String(lead.companyName || '未知公司'),
-              contactName: String(lead.contactName || ''),
-              source: 'NOVA',
-              isUnlocked: true, // 解锁可见
-            }
-          });
-          console.log(`✅ 线索已进入目标线索库: ${lead.email}`);
-
-          // 🟢 修复2：触发 AI 逻辑并写入投递流水 (DeliveryLog)
-          // 因为你还没配好发信域名，这里直接写入 FAILED 状态，让前端能展示出来
-          await prisma.deliveryLog.create({
-            data: {
-              userId: userId,
-              taskId: task ? task.id : null,
-              leadId: savedLead.id,
-              recipientEmail: savedLead.email,
-              senderDomain: '等待配置发信域名',
-              subject: `[AI 自动生成] 致 ${savedLead.companyName} 的专属合作方案`,
-              status: 'FAILED', // 你提到发信现在不好用，所以直接标为失败
-              errorMessage: '系统拦截：尚未配置发信源 API，AI 邮件已生成但未发送',
-              companyName: savedLead.companyName,
-              contactName: savedLead.contactName,
-            }
-          });
-          console.log(`✅ 投递流水已更新，由于未配发信源，状态拦截为 FAILED`);
-        }
-        break;
-
-      case 'TASK_COMPLETED':
-        // 🟢 修复3：全面更新面板状态，让前端停止空转
-        const finalStatus = status === 'SUCCESS' ? 'COMPLETED' : 'FAILED';
-        
-        // 更新战术面板 (NovaTask)
-        if (task) {
-          await prisma.novaTask.update({
-            where: { id: targetId },
-            data: { status: finalStatus as any }
-          });
-        }
-        
-        // 更新 Campaign 和 NovaJob 防止漏网之鱼导致局部转圈
-        await prisma.campaign.updateMany({
-          where: { id: targetId },
-          data: { status: finalStatus }
-        });
-        await prisma.novaJob.updateMany({
-          where: { id: targetId },
-          data: { status: finalStatus }
-        });
-        
-        console.log(`🏁 泥头车任务结束，全站状态已更新为: ${finalStatus}`);
-        break;
-
-      default:
-        console.log(`⚠️ 忽略未知动作: ${action}`);
-    }
-    
-    return NextResponse.json({ success: true, message: '主站已安全落库' });
-
-  } catch (error: any) {
-    console.error('[主站 Webhook 彻底崩溃]:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ success: true });
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }

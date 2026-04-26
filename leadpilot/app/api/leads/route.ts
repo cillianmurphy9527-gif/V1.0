@@ -4,10 +4,10 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 
 function maskEmail(email: string): string {
-  if (!email || !email.includes('@')) return email
-  const [local, domain] = email.split('@')
-  if (local.length <= 1) return `${local}***@${domain}`
-  return `${local[0]}***@${domain}`
+  if (!email || !email.includes('@')) return '***';
+  const [local, domain] = email.split('@');
+  // 强制只显示前 2 位，其余全变星号
+  return `${local.substring(0, 2)}***@${domain}`;
 }
 
 export async function GET(request: NextRequest) {

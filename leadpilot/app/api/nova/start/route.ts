@@ -18,14 +18,14 @@ export async function POST(request: NextRequest) {
     if (!token?.id) return NextResponse.json({ error: '请先登录' }, { status: 401 });
 
     const body = await request.json();
-    const { campaignId, targetRegions, targetIndustries, targetPersonas, pitch } = body;
+    const { campaignId, targetRegions, targetIndustries, targetPersonas } = body;
 
-    // 🛑 核心拦截：没有 ID 绝不发车
+    // 🛑 核心拦截：必须有真实的数据库 Campaign ID 才能发车
     if (!campaignId) {
-      return NextResponse.json({ error: '缺少关键参数: campaignId' }, { status: 400 });
+      return NextResponse.json({ error: '必须先创建任务获取 campaignId' }, { status: 400 });
     }
 
-    const finalKeyword = body.keyword || `${targetRegions?.[0] || ''} ${targetIndustries?.[0] || ''} ${targetPersonas?.[0] || ''}`.trim();
+    const finalKeyword = body.keyword || `${targetRegions?.[0] || ''} ${targetIndustries?.[0] || ''} ${targetPersonas?.[0] || ''}`.trim() || 'CEO';
     const jobId = `NOVA-${Date.now()}`;
 
     // 🎯 身份证下发
