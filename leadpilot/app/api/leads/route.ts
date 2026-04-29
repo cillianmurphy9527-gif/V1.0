@@ -4,10 +4,18 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 
 function maskEmail(email: string): string {
-  if (!email || !email.includes('@')) return '***';
-  const [local, domain] = email.split('@');
-  // 强制只显示前 2 位，其余全变星号
-  return `${local.substring(0, 2)}***@${domain}`;
+  if (!email || !email.includes('@')) return '***@***';
+  const [, domain] = email.split('@');
+  return `xx***@${domain}`;
+}
+
+function maskName(name: string | null): string | null {
+  if (!name || name.trim() === '') return null;
+  const trimmed = name.trim();
+  if (trimmed.length === 1) {
+    return `${trimmed[0]}**`;
+  }
+  return `${trimmed[0]}**`;
 }
 
 export async function GET(request: NextRequest) {
@@ -36,21 +44,17 @@ export async function GET(request: NextRequest) {
       where.country = country
     }
 
-    // 并行查询 UserLead 和 LeadsCache，合并去重
     const [userLeads, cachedLeads] = await Promise.all([
-      // 用户主动保存的线索
       prisma.userLead.findMany({
         where,
         orderBy: { createdAt: 'desc' },
       }),
-      // Worker 自动抓取的线索（从 LeadsCache）
       prisma.leadsCache.findMany({
         where: { userId: user.id },
         orderBy: { createdAt: 'desc' },
       }),
     ])
 
-    // 合并两个表的数据，统一格式
     const allLeads = [
       ...userLeads.map(l => ({
         id: l.id,
@@ -59,7 +63,7 @@ export async function GET(request: NextRequest) {
         jobTitle: l.jobTitle,
         country: l.country,
         email: l.isUnlocked ? l.email : maskEmail(l.email),
-        phone: l.phone ? (l.isUnlocked ? l.phone : maskEmail(l.phone)) : null,
+        phone: l.phone ? (l.isUnlocked ? l.phone : maskEmail(l.email)) : null,
         isUnlocked: l.isUnlocked,
         source: l.source || 'manual',
         website: l.website,
@@ -70,13 +74,13 @@ export async function GET(request: NextRequest) {
       })),
       ...cachedLeads.map(l => ({
         id: l.id,
-        companyName: l.companyName,
+        companyName: l.companyName || '未知公司',
         contactName: null,
         jobTitle: l.jobTitle,
         country: null,
-        email: maskEmail(l.contactEmail), // LeadsCache 的 email 字段是 contactEmail
+        email: maskEmail(l.contactEmail),
         phone: null,
-        isUnlocked: false, // 自动抓取的线索默认锁定
+        isUnlocked: false,
         source: 'nova',
         website: l.domain,
         linkedIn: null,
@@ -86,21 +90,18 @@ export async function GET(request: NextRequest) {
       })),
     ]
 
-    // 按时间降序排列
     allLeads.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
 
-    // 分页
     const total = allLeads.length
     const paginatedLeads = allLeads.slice(skip, skip + limit)
 
-    // 服务端脱敏：isUnlocked=false 的线索，email 返回脱敏版本
     const processedLeads = paginatedLeads.map(l => ({
       id: l.id,
       companyName: l.companyName || '未知公司',
-      contactName: l.contactName,
+      contactName: l.isUnlocked ? (l.contactName ?? null) : maskName(l.contactName),
       jobTitle: l.jobTitle,
       country: l.country,
-      email: l.isUnlocked ? l.email : maskEmail(l.email),
+      email: l.email,
       phone: l.phone,
       isUnlocked: l.isUnlocked,
       source: l.source,

@@ -27,43 +27,43 @@ export async function POST(req: NextRequest) {
     if (!campaign) return NextResponse.json({ error: 'Not Found' });
 
     if (event === 'LEAD_SYNC' && lead) {
-       // 1. 🎯 扣除线索额度 (UserQuota)
-       await prisma.userQuota.update({
-           where: { userId: campaign.userId },
-           data: { leadsBalance: { decrement: 1 } }
-       }).catch(() => console.log('UserQuota Update Fail'));
+      await prisma.$transaction(async (tx) => {
+        await tx.userQuota.update({
+          where: { userId: campaign.userId },
+          data: { leadsBalance: { decrement: 1 } }
+        });
 
-       // 2. 🎯 扣除 AI 算力 (User 表)
-       await prisma.user.update({
-           where: { id: campaign.userId },
-           data: { tokenBalance: { decrement: 100 } }
-       }).catch(() => console.log('User Token Update Fail'));
+        await tx.user.update({
+          where: { id: campaign.userId },
+          data: { tokenBalance: { decrement: 100 } }
+        });
 
-       // 3. 🔒 入库强制马赛克锁
-       await prisma.userLead.create({
+        await tx.userLead.create({
           data: {
-              userId: campaign.userId,
-              companyName: lead.companyName || 'Unknown',
-              contactName: lead.contactName || 'Manager',
-              email: lead.email, 
-              website: lead.domain,
-              source: 'NOVA_ENGINE',
-              isUnlocked: false // 🌟 核心：写死 false
+            userId: campaign.userId,
+            companyName: lead.companyName || 'Unknown',
+            contactName: lead.contactName || 'Manager',
+            email: lead.email,
+            website: lead.domain,
+            source: 'NOVA_ENGINE',
+            isUnlocked: false
           }
-       });
-       
-       await prisma.lead.create({
-         data: { campaignId, email: lead.email, status: 'VERIFIED', websiteData: JSON.stringify(lead) }
-       });
-    } 
-    
+        });
+      });
+
+      await prisma.lead.create({
+        data: { campaignId, email: lead.email, status: 'VERIFIED', websiteData: JSON.stringify(lead) }
+      });
+    }
+
     else if (event === 'TASK_COMPLETED') {
-       console.log(`[Flow] Success! Total: ${total}. Waking up AI Worker...`);
-       // 只有挖到线索才写信
-       if (Number(total) > 0) {
-           await aiEmailQueue.add('generate-emails', { campaignId }, { removeOnComplete: true });
-       }
-       await prisma.campaign.update({ where: { id: campaignId }, data: { status: 'COMPLETED' }});
+      console.log(`[Flow] Success! Total: ${total}. Waking up AI Worker...`);
+
+      if (typeof total !== 'undefined' && total !== null && Number(total) > 0) {
+        await aiEmailQueue.add('generate-emails', { campaignId }, { removeOnComplete: true });
+      }
+
+      await prisma.campaign.update({ where: { id: campaignId }, data: { status: 'COMPLETED' }});
     }
 
     return NextResponse.json({ success: true });

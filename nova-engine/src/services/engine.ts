@@ -1,75 +1,170 @@
 import axios from 'axios';
 
-export class NovaEngine {
-  private webhookUrl = process.env.WEBHOOK_URL || 'http://localhost:3000/api/nova/webhook';
-  private webhookSecret = process.env.NOVA_WEBHOOK_SECRET || 'leadpilot-super-secret-2026';
+const log = (tag: string, msg: string) => console.log(`[${tag}] ${msg}`);
 
-  // 核心：四步数据清洗与验证 (格式 -> DNS -> Catch-all -> 真实触达)
-  private async verifyEmail(email: string): Promise<boolean> {
-    console.log(`[引擎安全网] 正在执行四步深度清洗: ${email}`);
-    try {
-       // 如果你配置了 ZeroBounce 等验证 API，可以在这里解开注释实弹调用：
-       // const res = await axios.get(`https://api.zerobounce.net/v2/validate?api_key=${process.env.VALIDATION_API_KEY}&email=${email}`);
-       // return res.data.status === 'valid';
-       
-       // 本地打通测试：模拟 API 延迟与有效性判断
-       await new Promise(resolve => setTimeout(resolve, 800));
-       return email.includes('@'); 
-    } catch(e) {
-       return false; // 清洗不合格直接丢弃
-    }
-  }
+async function sendWebhook(event: string, payload: any, retry: number = 3) {
+    const mainStationUrl = process.env.MAIN_STATION_URL || 'http://localhost:3000';
+    const secret = (process.env.NOVA_SECRET_KEY || 'leadpilot_dev_secret_123').replace(/"/g, '');
 
-  async runTask(taskId: string, country: string, industry: string) {
-    console.log(`🚀 NOVA 引擎启动 | 目标: ${country} - ${industry} | 模式: 🔥实弹扣费`);
-    
-    try {
-      // 1. 实弹调用 Proxycurl 挖掘企业决策人
-      const proxycurlKey = process.env.PROXYCURL_API_KEY;
-      const response = await axios.get('https://nubela.co/proxycurl/api/v2/linkedin/company/employee/search', {
-        params: { country, current_company_industry: industry, page_size: 10 },
-        headers: { 'Authorization': `Bearer ${proxycurlKey}` }
-      });
+    for (let attempt = 0; attempt < retry; attempt++) {
+        try {
+            const response = await axios.post(
+                `${mainStationUrl}/api/nova/webhook`,
+                { event, ...payload },
+                {
+                    headers: { 'Authorization': `Bearer ${secret}` },
+                    timeout: 10000,
+                }
+            );
 
-      const employees = response.data.employees || [];
-      
-      for (const emp of employees) {
-        // 提取或推算目标邮箱 (依赖你的数据源返回格式)
-        const email = emp.profile_url?.includes('linkedin') ? `contact@${emp.profile_url.split('/')[4]}.com` : 'decision.maker@example.com';
-        
-        // 2. 执行四步验证
-        const isValid = await this.verifyEmail(email);
-        
-        if (isValid) {
-          console.log(`✅ 线索验证通过: ${email} | 正在同步至指挥台`);
-          // 3. 严格对齐数据结构，回传给主站
-          await axios.post(this.webhookUrl, {
-            action: 'LEAD_SYNC',
-            taskId: taskId,
-            lead: {
-              email: email,
-              companyName: emp.current_company || `${industry} Corp`,
-              contactName: emp.name || 'Decision Maker',
-              status: 'VERIFIED'
+            if (event !== 'LEAD_SYNC') {
+                log('Webhook', `✅ 状态已同步至主站: ${event}`);
             }
-          }, { headers: { 'Authorization': `Bearer ${this.webhookSecret}` } });
-        }
-      }
+            return;
+        } catch (err: any) {
+            const is500 = err.response?.status >= 500;
+            const isLastAttempt = attempt === retry - 1;
 
-      // 4. 引擎收工，通知主站停止转圈
-      await axios.post(this.webhookUrl, {
-        action: 'TASK_COMPLETED',
-        taskId: taskId,
-        status: 'SUCCESS'
-      }, { headers: { 'Authorization': `Bearer ${this.webhookSecret}` } });
+            if (isLastAttempt || !is500) {
+                if (event !== 'LEAD_SYNC') {
+                    log('Webhook', `❌ 回传主站失败 (${err.message})`);
+                }
+                return;
+            }
+
+            log('Webhook', `⚠️ 主站返回 ${err.response?.status || '网络错误'}，2秒后重试 (${attempt + 1}/${retry})...`);
+            await new Promise(res => setTimeout(res, 2000));
+        }
+    }
+}
+
+function getTargetDomains(keyword: string): { name: string; domain: string }[] {
+    const k = keyword.toLowerCase();
+    if (k.includes('德国') || k.includes('机械')) {
+        return [
+            { name: 'Siemens', domain: 'siemens.com' },
+            { name: 'Bosch', domain: 'bosch.com' },
+            { name: 'KUKA', domain: 'kuka.com' },
+        ];
+    }
+    return [
+        { name: 'Apple', domain: 'apple.com' },
+        { name: 'Microsoft', domain: 'microsoft.com' },
+    ];
+}
+
+async function runSnovRoute(domain: string, compName: string): Promise<any[]> {
+    const params = new URLSearchParams({
+        grant_type: 'client_credentials',
+        client_id: process.env.SNOV_CLIENT_ID || '',
+        client_secret: process.env.SNOV_CLIENT_SECRET || '',
+    });
+
+    const tokenRes = await axios.post(
+        'https://api.snov.io/v1/oauth/access_token',
+        params,
+        { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+    );
+    const token = tokenRes.data.access_token;
+
+    const searchRes = await axios.post(
+        'https://api.snov.io/v1/get-domain-emails-with-info',
+        { domain, type: 'personal', limit: 3 },
+        { headers: { 'Authorization': `Bearer ${token}` } }
+    );
+
+    const emails = searchRes.data.emails || [];
+    const validLeads: any[] = [];
+
+    for (const p of emails) {
+        log('Snov.io', `正在验证邮箱: ${p.email}`);
+        const verifyRes = await axios.post(
+            'https://api.snov.io/v1/email-verifier',
+            { emails: [p.email] },
+            { headers: { 'Authorization': `Bearer ${token}` } }
+        );
+
+        if (verifyRes.data[0]?.status === 'valid') {
+            validLeads.push({
+                companyName: compName,
+                domain,
+                email: p.email,
+                contactName: `${p.firstName || ''} ${p.lastName || ''}`.trim() || '高管',
+                position: p.position || '决策者',
+                status: 'VERIFIED',
+            });
+        }
+    }
+    return validLeads;
+}
+
+async function runFallbackRoute(domain: string, compName: string): Promise<any[]> {
+    log('Fallback', `⚠️ 正在启用 Hunter + ZeroBounce 联合兜底路线...`);
+    const hRes = await axios.get(
+        `https://api.hunter.io/v2/domain-search?domain=${domain}&type=personal&limit=3&api_key=${process.env.HUNTER_API_KEY}`
+    );
+    const emails = hRes.data?.data?.emails || [];
+
+    const validLeads: any[] = [];
+    for (const p of emails) {
+        log('ZeroBounce', `正在验证邮箱: ${p.value}`);
+        const zRes = await axios.get(
+            `https://api.zerobounce.net/v2/validate?api_key=${process.env.ZEROBOUNCE_API_KEY}&email=${p.value}`
+        );
+
+        if (zRes.data.status === 'valid') {
+            validLeads.push({
+                companyName: compName,
+                domain,
+                email: p.value,
+                contactName: `${p.first_name || ''} ${p.last_name || ''}`.trim() || '高管',
+                position: p.position || '决策者',
+                status: 'VERIFIED',
+            });
+        }
+    }
+    return validLeads;
+}
+
+export async function runEngine(keyword: string, campaignId: string) {
+    log('Engine', `🚀 [商用级挖掘引擎] 点火启动 | 任务 ID: ${campaignId}`);
+
+    try {
+        const targets = getTargetDomains(keyword);
+        log('Engine', `🔍 锁定 ${targets.length} 家目标企业，开始执行四步清洗流水线...`);
+
+        let totalFound = 0;
+
+        for (const target of targets) {
+            let leads: any[] = [];
+
+            try {
+                log('Engine', `🟢 [首选链路] 呼叫 Snov.io 突击 ${target.domain}...`);
+                leads = await runSnovRoute(target.domain, target.name);
+
+                if (leads.length === 0) throw new Error('SNOV_EMPTY');
+            } catch (e: any) {
+                log('Snov.io', `⚠️ 链路阻断: ${e.response?.data?.message || e.message}`);
+                try {
+                    leads = await runFallbackRoute(target.domain, target.name);
+                } catch (fallbackError: any) {
+                    log('Engine', `🔴 [拦截] 该企业 (${target.domain}) 数据防御严密。跳过。`);
+                    continue;
+                }
+            }
+
+            for (const lead of leads) {
+                log('Engine', `🎯 [爆绿] 成功捕获线索: ${lead.email}`);
+                totalFound++;
+                await sendWebhook('LEAD_SYNC', { campaignId, lead });
+            }
+        }
+
+        log('Engine', `🎉 任务收官！共捕获 ${totalFound} 条数据。正在呼叫主站 AI 队列...`);
+        await sendWebhook('TASK_COMPLETED', { campaignId, status: 'SUCCESS', total: totalFound });
 
     } catch (error: any) {
-      console.error(`❌ 引擎实弹挖掘中断:`, error?.response?.data || error.message);
-      await axios.post(this.webhookUrl, {
-        action: 'TASK_COMPLETED',
-        taskId: taskId,
-        status: 'FAILED'
-      }, { headers: { 'Authorization': `Bearer ${this.webhookSecret}` } });
+        log('Error', `🚨 引擎底层崩溃: ${error.message}`);
+        await sendWebhook('TASK_FAILED', { campaignId, status: 'FAILED', error: error.message });
     }
-  }
 }

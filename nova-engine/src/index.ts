@@ -1,23 +1,36 @@
-// nova-engine/src/index.ts 完全替换
-import { NovaEngine } from './services/engine';
+import * as dotenv from 'dotenv';
+import { Worker } from 'bullmq';
+import Redis from 'ioredis';
+import { runEngine } from './services/engine';
 
-async function main() {
-  console.log("🔥 NOVA 泥头车节点启动 | 监控模式: 实时实弹");
-  const engine = new NovaEngine();
+dotenv.config();
 
-  // 这里假设你通过命令行或消息队列触发任务
-  const taskId = process.argv[2];
-  const country = process.argv[3] || 'Germany';
-  const industry = process.argv[4] || 'Manufacturing';
-
-  if (taskId) {
-    await engine.runTask(taskId, country, industry);
-  } else {
-    console.log("ℹ️ 等待调度指令...");
-  }
-}
-
-main().catch(err => {
-  console.error("❌ 引擎崩溃:", err);
-  process.exit(1);
+const connection = new Redis({
+  host: process.env.REDIS_HOST || '127.0.0.1',
+  port: 6379,
+  maxRetriesPerRequest: null,
 });
+
+console.log(`\n=============================================`);
+console.log(`[Nova Engine] 🚀 泥头车已就绪 | 正在监听指令...`);
+console.log(`=============================================\n`);
+
+const worker = new Worker('nova-jobs', async (job) => {
+  // 🌟 修复红线：删除了未使用的 userId，明确使用 jobId
+  const { keyword, campaignId, jobId } = job.data;
+  
+  console.log(`\n🚨 [收到指令] 关键词: [${keyword}]`);
+  console.log(`🆔 [身份验证] CampaignID: [${campaignId || '缺失'}] | 任务号: [${jobId}]`);
+  
+  try {
+    await runEngine(keyword, campaignId);
+    console.log(`✅ [任务结束] 关键词 [${keyword}] 处理完毕。`);
+  } catch (error: any) {
+    console.error(`❌ [任务崩溃] 致命异常:`, error.message);
+  }
+}, { 
+    connection,
+    concurrency: 10 
+});
+
+worker.on('error', err => console.error('[系统故障]', err));

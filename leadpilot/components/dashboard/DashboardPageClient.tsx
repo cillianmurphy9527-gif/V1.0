@@ -58,17 +58,17 @@ function DashboardInner({ initialUserAssets }: any) {
   const [userPrompt, setUserPrompt] = useState('')
   const [logs, setLogs] = useState([])
   const [campaignId, setCampaignId] = useState(null)
+  const [sampleIdx, setSampleIdx] = useState(0)
+  const [showSampling, setShowSampling] = useState(false)
+  const [emailSamples, setEmailSamples] = useState([])
+  const [loadingSamples, setLoadingSamples] = useState(false)
   const [report, setReport] = useState(null)
+  const [showUpgrade, setShowUpgrade] = useState(false)
   
-  // 🌟 核心新增：用户自定义挖掘数量
-  const [targetLeadCount, setTargetLeadCount] = useState(10) 
-
   const [userAssets, setUserAssets] = useState(() => ({
     tokenBalance: initialUserAssets?.tokenBalance || 0,
     subscriptionTier: initialUserAssets?.subscriptionTier || '未订阅',
     ragFileCount: initialUserAssets?.ragFileCount || 0,
-    leadsBalance: initialUserAssets?.leadsBalance || 0, // 新增线索余额
-    exportBalance: initialUserAssets?.exportBalance || 0 // 新增导出余额
   }))
 
   useEffect(() => {
@@ -81,8 +81,6 @@ function DashboardInner({ initialUserAssets }: any) {
             tokenBalance: data.tokenBalance ?? 0,
             subscriptionTier: data.subscriptionTier || '未订阅',
             ragFileCount: typeof data.ragFileCount === 'number' ? data.ragFileCount : 0,
-            leadsBalance: data.leadsBalance ?? 0,
-            exportBalance: data.exportBalance ?? 0
           })
         }
       } catch (error) {}
@@ -93,6 +91,8 @@ function DashboardInner({ initialUserAssets }: any) {
   const [showEstimateModal, setShowEstimateModal] = useState(false)
   const [novaLaunchLoading, setNovaLaunchLoading] = useState(false)
   const [ticker, setTicker] = useState('')
+
+  const kbFileCount = userAssets.ragFileCount 
 
   const [savedTactics, setSavedTactics] = useState([
     { id:'t1', label:'🌍 欧洲高端地接社', prompt: TEMPLATES[0].prompt, color:'blue', category:'旅游' },
@@ -114,11 +114,52 @@ function DashboardInner({ initialUserAssets }: any) {
   const [metricHealth, setMetricHealth] = useState(100)
   const [showAbortConfirm, setShowAbortConfirm] = useState(false)
 
+  const [showDomainHealthWarning, setShowDomainHealthWarning] = useState(false)
+  const [pendingLaunch, setPendingLaunch] = useState(false)
+
+  const [showPendingReminder, setShowPendingReminder] = useState(false)
+  const [pendingLeadsCount, setPendingLeadsCount] = useState(0)
+
   const logsEndRef = useRef(null)
+  const logTimerRef = useRef(null)
   const agentTimerRef = useRef(null)
   const tickerTimer = useRef(null)
   const statusTimerRef = useRef(null)
   const { toast } = useToast()
+
+  useEffect(() => {
+    const restoreRunningTask = async () => {
+      try {
+        const res = await fetch('/api/campaigns/active')
+        if (res.ok) {
+          const data = await res.json()
+          const activeCampaign = data?.campaign
+          if (activeCampaign && activeCampaign.status === 'RUNNING') {
+            setCampaignId(activeCampaign.id)
+            setAgentState('SEARCHING')
+            setWorkflow('RUNNING')
+          }
+        }
+      } catch (error) {}
+    }
+
+    const checkPendingLeads = async () => {
+      try {
+        const res = await fetch('/api/delivery-logs?pending=true&limit=1')
+        if (res.ok) {
+          const data = await res.json()
+          const count = data.count ?? 0
+          setPendingLeadsCount(count)
+          if (count > 0) setShowPendingReminder(true)
+        }
+      } catch (error) {}
+    }
+
+    restoreRunningTask()
+    checkPendingLeads()
+  }, [])
+
+  const [preflightFail, setPreflightFail] = useState(null)
 
   const weight = PLAN_WEIGHT[userPlan] || 1
   const extra = (assets?.addons_purchased || []).reduce((acc: number, key: string) => {
@@ -151,7 +192,7 @@ function DashboardInner({ initialUserAssets }: any) {
 
   useEffect(() => {
     if (workflow !== 'RUNNING') { setTicker(''); return }
-    const phrases = ['正在全球搜索目标客户...', 'Nova 正在执行四步深度清洗...', '正在生成千人千面开发信...', '智能轮换发信域名，规避风控...']
+    const phrases = ['正在全球搜索目标客户...', 'Nova 基于 RAG 知识库生成个性化邮件...', '智能轮换发信域名，规避风控...', '实时监控进箱率与回复信号...']
     let i = 0
     setTicker(phrases[0])
     tickerTimer.current = setInterval(() => {
@@ -162,7 +203,7 @@ function DashboardInner({ initialUserAssets }: any) {
   }, [workflow])
 
   const startLogSimulation = () => {
-    setLogs([{ id: `l-${Date.now()}`, timestamp: nowT(), message: '⏳ 系统点火，正在校验资源额度...', type: 'info' }])
+    setLogs([{ id: `l-${Date.now()}`, timestamp: nowT(), message: '⏳ 等待后端任务状态...', type: 'info' }])
     setMetricLeads(0); setMetricSent(0); setMetricHealth(100)
   }
 
@@ -171,40 +212,60 @@ function DashboardInner({ initialUserAssets }: any) {
       toast({ title: '请输入指令', description: '告诉 Nova 你想要什么', variant: 'destructive' })
       return
     }
+
+    const planWeight = PLAN_WEIGHT[userPlan] || 1
+    const issues = []
+
+    if (assets?.tokens <= 0) issues.push({ label: '可用算力 Tokens 为 0', field: 'tokens' })
+    if (assets?.leads <= 0) issues.push({ label: '可用线索额度为 0', field: 'leads' })
     
-    // 🌟 核心拦截：前端第一道防线，判断线索余额是否足够
-    if (userAssets.leadsBalance < targetLeadCount) {
-        toast({ 
-            title: '线索额度不足', 
-            description: `您当前仅剩 ${userAssets.leadsBalance} 个线索额度，但您请求挖掘 ${targetLeadCount} 个。请前往计费中心充值。`, 
-            variant: 'destructive' 
-        })
-        return
+    const extraSlots = (assets?.addons_purchased || []).reduce((acc: number, key: string) => {
+      if (key === 'domain-1') return acc + 1;
+      if (key === 'domain-3') return acc + 3;
+      if (key === 'domain-5') return acc + 5;
+      return acc;
+    }, 0)
+    const maxDomains = (planWeight >= 3 ? 10 : planWeight >= 2 ? 3 : 1) + extraSlots
+    
+    if ((activeConfig?.activeDomains || 1) > maxDomains) issues.push({ label: `域名数(${activeConfig?.activeDomains})超出可用槽位(最大${maxDomains})`, field: 'domains' })
+    if ((activeConfig?.activeDomains || 1) < 1) issues.push({ label: '出动域名数必须 ≥ 1', field: 'domains' })
+
+    if (issues.length > 0) {
+      setPreflightFail({ reason: issues[0].label, field: issues[0].field })
+      toast({ title: '⚠️ 资源不足', description: issues.map(i => i.label).join(' · '), variant: 'destructive' })
+      return
     }
 
+    setPreflightFail(null)
+    const dispatchCount = activeConfig?.activeDomains || 1
+    if (!activeConfig?.dedicatedIP && dispatchCount > domainHealth.ready) {
+      setPendingLaunch(true)
+      setShowDomainHealthWarning(true)
+      return
+    }
     setShowEstimateModal(true)
   }
 
-  const handleConfirmEstimate = async () => {
+  const handleConfirmEstimate = async (estimatedLeads: number) => {
     setNovaLaunchLoading(true)
     try {
       setWorkflow('RUNNING')
       setReport(null)
       startLogSimulation()
 
-      // 1. 创建任务
       setLogs((p) => [...p, { id: `ign-${Date.now()}-1`, timestamp: nowT(), message: '> 正在初始化主站任务库...', type: 'info' }])
+
+      // 1. 先创建任务，拿到 ID
       const createRes = await fetch('/api/campaigns/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          name: `Nova 自动化营销 - ${new Date().toLocaleDateString()}`,
+          name: `Nova 任务 - ${new Date().toLocaleDateString()}`,
           systemPrompt: userPrompt,
           targetRegions,
           targetIndustries,
           targetPersonas,
           activeConfig,
-          targetLeadCount // 🌟 将用户期望的挖掘数量传给后端
         }),
       })
       const createData = await createRes.json()
@@ -214,7 +275,7 @@ function DashboardInner({ initialUserAssets }: any) {
 
       setLogs((p) => [...p, { id: `ign-${Date.now()}-2`, timestamp: nowT(), message: `> 身份证已生成: ${newId}`, type: 'success' }])
 
-      // 2. 启动泥头车，带上目标数量
+      // 2. 带着 ID 启动泥头车
       const startNovaRes = await fetch('/api/nova/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -224,44 +285,37 @@ function DashboardInner({ initialUserAssets }: any) {
           targetIndustries,
           targetPersonas,
           pitch: userPrompt,
-          targetLeadCount // 🌟 泥头车需要知道挖到多少个就停
         }),
       })
-      if (!startNovaRes.ok) throw new Error('泥头车点火失败')
+      
+      if (!startNovaRes.ok) {
+         let errorMsg = '泥头车点火失败'
+         try { 
+             const errData = await startNovaRes.json()
+             if (errData && errData.error) errorMsg = errData.error;
+         } catch(e) {}
+         throw new Error(errorMsg)
+      }
+
+      // 3. 启动主站监控
+      await fetch('/api/campaigns/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ campaignId: newId, estimatedLeads, activeConfig }),
+      })
 
       setLogs((p) => [...p, { id: `ign-${Date.now()}-3`, timestamp: nowT(), message: `✅ 引擎挂载指令成功，泥头车出发！`, type: 'success' }])
 
-      // 3. 状态轮询：现在不仅要等挖掘结束，还要等发信结束！
+      // 4. 状态轮询
       if (statusTimerRef.current) clearInterval(statusTimerRef.current)
       statusTimerRef.current = setInterval(async () => {
         try {
             const res = await fetch(`/api/campaigns/status?campaignId=${newId}`)
             const data = await res.json()
-            
-            // 实时更新前端的仪表盘数字
-            if (data?.campaign) {
-                setMetricLeads(data.campaign.leadsFound || 0)
-                setMetricSent(data.campaign.emailsSent || 0)
-            }
-
-            // 只有当状态彻底变为 COMPLETED（发信也完成了），才停止轮询
-            if (data?.campaign?.status === 'COMPLETED' || data?.campaign?.status === 'FAILED') {
+            if (data?.campaign?.status && data.campaign.status !== 'RUNNING' && data.campaign.status !== 'PENDING') {
               if (statusTimerRef.current) clearInterval(statusTimerRef.current)
               setWorkflow('COMPLETED')
-              
-              // 🌟 完美战报呈现
-              setReport({
-                  totalFound: data.campaign.leadsFound || 0,
-                  sent: data.campaign.emailsSent || 0,
-                  successRate: data.campaign.leadsFound > 0 ? Math.round((data.campaign.emailsSent / data.campaign.leadsFound) * 100) : 0,
-                  summary: '全链路执行完毕。Nova 已完成目标企业的深度挖掘、严苛的有效性验证，并由 AI 大模型根据您的业务指令自动撰写并投递了千人千面的开发信。',
-                  topCountry: targetRegions[0] || '默认地区',
-                  duration: '自动统计'
-              });
-
               if (typeof window !== 'undefined') window.dispatchEvent(new Event('leadpilot:leads-updated'))
-              // 发信后自动扣除部分 Tokens，刷新一下余额
-              fetchUserAssets() 
             }
         } catch(e) {}
       }, 5000)
@@ -275,7 +329,30 @@ function DashboardInner({ initialUserAssets }: any) {
     }
   }
 
-  const handleAbort = async () => { /* 保持原样 */ }
+  const handleAbort = async () => {
+    if (!campaignId) {
+      if (logTimerRef.current) clearInterval(logTimerRef.current)
+      if (agentTimerRef.current) clearInterval(agentTimerRef.current)
+      if (statusTimerRef.current) clearInterval(statusTimerRef.current)
+      setWorkflow('IDLE'); setAgentState('IDLE'); setLogs([]); setCampaignId(null); setShowAbortConfirm(false)
+      toast({ title: '任务已终止', variant: 'destructive' })
+      return
+    }
+
+    try {
+      await fetch('/api/campaigns/stop', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ campaignId }),
+      })
+      if (statusTimerRef.current) clearInterval(statusTimerRef.current)
+      setWorkflow('IDLE'); setAgentState('IDLE'); setLogs([]); setCampaignId(null); setShowAbortConfirm(false)
+      toast({ title: '任务已终止', description: '后端已确认停止，所有状态已重置', variant: 'destructive' })
+    } catch (e) {
+      toast({ title: '网络错误', description: '无法连接到服务器，请检查网络后重试', variant: 'destructive' })
+    }
+  }
+
   const handleReset = () => { setWorkflow('IDLE'); setAgentState('IDLE'); setLogs([]); setReport(null); setUserPrompt('') }
 
   const isRunning = workflow === 'RUNNING'
@@ -289,79 +366,130 @@ function DashboardInner({ initialUserAssets }: any) {
             <div className="flex items-center justify-between mb-8">
               <div>
                 <h1 className="text-4xl font-bold mb-1">指挥中心</h1>
-                <p className="text-slate-400">资源配额总览：算力 {userAssets.tokenBalance} | 挖掘线索 {userAssets.leadsBalance} | 导出明文 {userAssets.exportBalance}</p>
+                <p className="text-slate-400">知识库已就绪 · {kbFileCount} 个文件 · Nova 待命</p>
               </div>
-              {/* ... 右侧资产面板保持原样 ... */}
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-3 px-5 py-3 bg-gradient-to-br from-slate-900/90 to-slate-800/90 border border-slate-700/50 rounded-2xl backdrop-blur-sm">
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-amber-500 to-orange-500 flex items-center justify-center shadow-lg shadow-amber-500/30">
+                      <Zap className="w-6 h-6 text-white" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2 mb-1">
+                        <TierBadge tier={userAssets.subscriptionTier} />
+                      </div>
+                      <div className="flex items-baseline gap-2">
+                        <span className="text-xl font-bold text-white">{userAssets.tokenBalance.toLocaleString()}</span>
+                        <span className="text-xs text-slate-400">tokens 剩余</span>
+                      </div>
+                      <div className="mt-1 w-32 h-1.5 bg-slate-700 rounded-full overflow-hidden">
+                        <div className="h-full bg-gradient-to-r from-amber-500 to-orange-500" style={{ width: `${Math.min((userAssets.tokenBalance / 50000) * 100, 100)}%` }} />
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-2 ml-2">
+                    <Link href="/billing"><Button size="sm" className="bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 text-xs px-4 py-1.5 h-auto">升级套餐</Button></Link>
+                    <Link href="/billing"><Button size="sm" variant="outline" className="border-slate-600 text-slate-300 hover:bg-slate-800 text-xs px-4 py-1.5 h-auto">充值算力</Button></Link>
+                  </div>
+                </div>
+              </div>
             </div>
 
             <div className="grid lg:grid-cols-5 gap-6">
-              
-              {/* 🌟 核心修改：在表单区域增加“目标挖掘数量”的输入框 */}
-              <div className="lg:col-span-3 space-y-6">
-                  {/* ... 保留您原有的 NovaForm 调用，但我们在下方增加一个专属的资源控制器 ... */}
-                  <NovaForm
-                    isRunning={isRunning}
-                    workflow={workflow}
-                    novaLaunchLoading={novaLaunchLoading}
-                    // ... 传入其他必要参数 ...
-                    onStartClick={handleStart}
-                    // ...
-                  />
-                  
-                  {!isRunning && !isComplete && (
-                     <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-5">
-                        <h3 className="text-lg font-bold text-white mb-2 flex items-center gap-2"><Users className="w-5 h-5 text-blue-400"/> 设定挖掘目标</h3>
-                        <p className="text-sm text-slate-400 mb-4">本次任务您希望精准获取多少位客户？（系统每挖到1个有效客户将扣除1点线索额度）</p>
-                        <div className="flex items-center gap-4">
-                            <input 
-                                type="number" 
-                                min="1" 
-                                max={userAssets.leadsBalance || 100}
-                                value={targetLeadCount} 
-                                onChange={(e) => setTargetLeadCount(parseInt(e.target.value) || 1)}
-                                className="bg-slate-950 border border-slate-700 rounded-xl px-4 py-2 text-white w-32 focus:border-blue-500 outline-none"
-                            />
-                            <span className="text-sm text-slate-500">/ 当前最大可用线索额度: <span className="font-bold text-emerald-400">{userAssets.leadsBalance}</span></span>
-                        </div>
-                     </div>
-                  )}
-              </div>
+              <NovaForm
+                isRunning={isRunning}
+                workflow={workflow}
+                novaLaunchLoading={novaLaunchLoading}
+                preflightFail={preflightFail}
+                onStartClick={handleStart}
+                targetRegions={targetRegions}
+                setTargetRegions={setTargetRegions}
+                targetIndustries={targetIndustries}
+                setTargetIndustries={setTargetIndustries}
+                targetPersonas={targetPersonas}
+                setTargetPersonas={setTargetPersonas}
+                userPrompt={userPrompt}
+                setUserPrompt={setUserPrompt}
+                savedTactics={savedTactics}
+                setSavedTactics={setSavedTactics}
+                showSaveTacticDialog={showSaveTacticDialog}
+                setShowSaveTacticDialog={setShowSaveTacticDialog}
+                tacticName={tacticName}
+                setTacticName={setTacticName}
+                tacticCategory={tacticCategory}
+                setTacticCategory={setTacticCategory}
+                tacticColor={tacticColor}
+                setTacticColor={setTacticColor}
+                slot={slot}
+              />
 
-              {/* 监控大屏保持原样，它会自动读取我们新绑定的 metricLeads 和 metricSent */}
               <div className="lg:col-span-2 space-y-5">
-                 {/* ... 监控面板 ... */}
-                 
-                {isComplete && report && (
-                  <div className="relative rounded-3xl border border-blue-500/30 bg-slate-900/80 overflow-hidden p-5 mt-6 shadow-2xl shadow-blue-500/20">
-                    <div className="absolute inset-0 bg-gradient-to-br from-blue-600/10 to-purple-600/10" />
-                    <div className="relative">
-                        <div className="flex items-center justify-between mb-6">
-                          <h2 className="text-xl font-bold text-white flex items-center gap-2"><BarChart3 className="w-5 h-5 text-blue-400" />全链路战报</h2>
-                          <button onClick={handleReset} className="text-xs text-blue-400 hover:text-white px-3 py-1.5 rounded-lg border border-blue-500/30 hover:bg-blue-500/20 transition-all">开启新任务</button>
-                        </div>
-                        
-                        <div className="grid grid-cols-3 gap-3 mb-6">
-                          <div className="bg-slate-950/50 border border-slate-800 rounded-xl p-4 text-center">
-                              <Users className="w-5 h-5 mx-auto mb-2 text-blue-400" />
-                              <p className="text-2xl font-bold text-white tabular-nums">{report.totalFound}</p>
-                              <p className="text-xs text-slate-400 mt-1">入库线索</p>
-                          </div>
-                          <div className="bg-slate-950/50 border border-slate-800 rounded-xl p-4 text-center">
-                              <Send className="w-5 h-5 mx-auto mb-2 text-emerald-400" />
-                              <p className="text-2xl font-bold text-white tabular-nums">{report.sent}</p>
-                              <p className="text-xs text-slate-400 mt-1">AI发信量</p>
-                          </div>
-                          <div className="bg-slate-950/50 border border-slate-800 rounded-xl p-4 text-center">
-                              <TrendingUp className="w-5 h-5 mx-auto mb-2 text-amber-400" />
-                              <p className="text-2xl font-bold text-white tabular-nums">{report.successRate}%</p>
-                              <p className="text-xs text-slate-400 mt-1">自动化覆盖率</p>
-                          </div>
-                        </div>
+                <div className={`relative rounded-3xl border transition-all duration-500 ${isRunning ? 'border-emerald-500/50 bg-slate-900/90 shadow-2xl shadow-emerald-500/10' : 'border-slate-800 bg-slate-900/60'}`}>
+                  <div className="relative p-5">
+                    <div className="flex items-center justify-between mb-4">
+                      <h2 className="font-semibold text-white flex items-center gap-2">
+                        {isRunning ? <Loader2 className="w-4 h-4 animate-spin text-emerald-400" /> : <AlertCircle className="w-4 h-4 text-slate-500" />}
+                        实时执行监控
+                      </h2>
+                    </div>
 
-                        <div className="bg-slate-800/40 rounded-xl p-4 border border-slate-700/50">
-                          <p className="text-xs text-slate-500 mb-2 font-mono uppercase tracking-wider">System Summary</p>
-                          <p className="text-sm text-slate-300 leading-relaxed">{report.summary}</p>
+                    <div className="flex items-center gap-4 mb-4">
+                      <AgentAvatar state={agentState} size={56} />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs text-slate-500 mb-0.5">Nova 状态</p>
+                        <p className="text-sm font-bold text-white tracking-wide">{agentState}</p>
+                        {isRunning && ticker && <p className="text-xs text-emerald-400 mt-1 truncate">{ticker}</p>}
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2 mb-4">
+                      {[
+                        { label: '挖掘线索', value: metricLeads > 0 ? `${metricLeads}/500` : '—', color: 'blue' },
+                        { label: '成功投递', value: metricSent > 0 ? String(metricSent) : '—', color: 'emerald' },
+                        { label: '域名健康', value: isRunning ? `${metricHealth}%` : '—', color: metricHealth >= 95 ? 'emerald' : 'amber' },
+                      ].map(s => (
+                        <div key={s.label} className="bg-slate-800/70 border border-slate-700/50 rounded-xl p-2.5 text-center">
+                          <p className={`text-base font-bold text-${s.color}-400 tabular-nums`}>{s.value}</p>
+                          <p className="text-xs text-slate-600 mt-0.5">{s.label}</p>
                         </div>
+                      ))}
+                    </div>
+
+                    <div className="rounded-2xl overflow-hidden border border-slate-700/50 shadow-inner">
+                      <div className="flex items-center gap-1.5 px-3 py-2 bg-slate-800/80 border-b border-slate-700/50">
+                        <span className="w-2.5 h-2.5 rounded-full bg-red-500/80" />
+                        <span className="w-2.5 h-2.5 rounded-full bg-yellow-500/80" />
+                        <span className="w-2.5 h-2.5 rounded-full bg-green-500/80" />
+                        <span className="ml-auto text-xs text-slate-600 font-mono">leadpilot-agent — bash</span>
+                      </div>
+                      <div className="bg-slate-950 p-3 h-44 overflow-y-auto font-mono text-xs">
+                        {logs.length === 0 ? (
+                          <p className="text-slate-700 text-center mt-16">$ waiting for task...</p>
+                        ) : logs.map((log: any) => (
+                            <div key={log.id} className={`flex gap-2 py-0.5 leading-relaxed ${log.type === 'success' ? 'text-green-400' : log.type === 'warning' ? 'text-yellow-400 animate-pulse' : 'text-slate-300'}`}>
+                              <span className="text-slate-600 flex-shrink-0">[{log.timestamp}]</span>
+                              <span>{log.message}</span>
+                            </div>
+                        ))}
+                        <div ref={logsEndRef} />
+                      </div>
+                    </div>
+
+                    <button onClick={() => isRunning && setShowAbortConfirm(true)} disabled={!isRunning} className={`mt-4 w-full py-3 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 transition-all ${isRunning ? 'bg-red-600/20 border-2 border-red-500/60 text-red-400 hover:bg-red-600/30 shadow-lg' : 'bg-slate-800/40 border border-slate-700/40 text-slate-600 cursor-not-allowed'}`}>
+                      <StopCircle className="w-4 h-4" /> 紧急终止当前任务
+                    </button>
+                  </div>
+                </div>
+                
+                {isComplete && report && (
+                  <div className="relative rounded-3xl border border-blue-500/30 bg-slate-900/80 overflow-hidden p-5">
+                    <div className="flex items-center justify-between mb-4">
+                      <h2 className="font-semibold text-white flex items-center gap-2"><BarChart3 className="w-4 h-4 text-blue-400" />战报输出</h2>
+                      <button onClick={handleReset} className="text-xs text-slate-500 hover:text-white px-2 py-1 rounded-lg hover:bg-slate-800">新任务</button>
+                    </div>
+                    <div className="bg-slate-800/40 rounded-xl p-4">
+                      <p className="text-xs text-slate-500 mb-1">执行总结</p>
+                      <p className="text-sm text-slate-300">{report?.summary || ''}</p>
                     </div>
                   </div>
                 )}
@@ -370,13 +498,35 @@ function DashboardInner({ initialUserAssets }: any) {
           </div>
         </div>
       </div>
-      
-      {/* ... 弹窗部分保持原样 ... */}
+
+    {showAbortConfirm && (
+      <div className="fixed inset-0 flex items-center justify-center z-[60] bg-black/70 p-4">
+        <div className="max-w-sm w-full bg-slate-900 border-2 border-red-500/40 rounded-3xl p-8 text-center">
+          <h3 className="text-xl font-bold text-white mb-2">确认终止？</h3>
+          <div className="flex gap-3 mt-6">
+            <button onClick={() => setShowAbortConfirm(false)} className="flex-1 py-3 rounded-xl border border-slate-600 text-slate-300 hover:bg-slate-800">取消</button>
+            <button onClick={handleAbort} className="flex-1 py-3 rounded-xl bg-red-600 text-white font-bold hover:bg-red-500">确认</button>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {showDomainHealthWarning && (
+      <div className="fixed inset-0 flex items-center justify-center z-[70] bg-black/70 p-4">
+        <div className="max-w-md w-full bg-slate-900 border-2 border-amber-500/40 rounded-3xl p-8">
+          <h3 className="text-xl font-bold text-white text-center mb-4">⚠️ 风险警告</h3>
+          <button onClick={() => { setShowDomainHealthWarning(false); setPendingLaunch(false); setShowEstimateModal(true); }} className="w-full py-3 mt-4 rounded-2xl bg-red-600/20 text-red-400">承担风险强制启动</button>
+          <button onClick={() => setShowDomainHealthWarning(false)} className="w-full py-3 mt-2 rounded-2xl text-slate-400">取消</button>
+        </div>
+      </div>
+    )}
+
+    <CampaignEstimateModal isOpen={showEstimateModal} onClose={() => !novaLaunchLoading && setShowEstimateModal(false)} onConfirm={handleConfirmEstimate} currentTokenBalance={userAssets.tokenBalance} subscriptionTier={userAssets.subscriptionTier} />
+    <NovaDrawer />
     </>
   )
 }
 
-// 🌟 必须这样写，去掉 export default
 export function DashboardPageClient(props: any) {
   return (
     <WorkbenchProvider>
