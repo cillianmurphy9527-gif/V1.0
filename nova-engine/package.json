@@ -10,6 +10,7 @@
     "bullmq": "^5.73.5",
     "cheerio": "^1.0.0-rc.12",
     "dotenv": "^16.6.1",
+    "https-proxy-agent": "^9.0.0",
     "ioredis": "^5.10.1",
     "prisma": "^5.12.1",
     "puppeteer": "^22.6.0"

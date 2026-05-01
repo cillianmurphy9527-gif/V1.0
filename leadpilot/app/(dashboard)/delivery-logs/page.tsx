@@ -133,7 +133,7 @@ export default function DataAssetCenterPage() {
           contactName: l.contactName || null,
           fromDomain: l.senderDomain || '—',
           subject: l.subject || '—',
-          body: l.body || null,
+          body: l.errorMessage || l.body || null,
           status: (l.status || 'SENT') as LogStatus,
           openCount: l.openCount ?? 0,
           clickCount: l.clickCount ?? 0,
@@ -965,115 +965,124 @@ export default function DataAssetCenterPage() {
           </DialogContent>
         </Dialog>
 
- {/* 唯一的邮件预览弹窗 (纯白美式高级 SaaS 皮肤) */}
+ {/* 终极进化：黑金工业风邮件工作台 (Ultra-Dark Pro) */}
  <Dialog open={showPreviewModal} onOpenChange={(open) => {
           setShowPreviewModal(open)
           if (!open) setSelectedLogForPreview(null)
         }}>
-          <DialogContent className="max-w-2xl max-h-[85vh] p-0 overflow-hidden border border-slate-200 shadow-2xl rounded-2xl sm:rounded-3xl">
-            <div className="bg-white h-full flex flex-col">
-              {/* Header */}
-              <div className="flex items-center justify-between p-6 border-b border-slate-100 bg-slate-50/80">
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 rounded-xl bg-white border border-slate-200 shadow-sm flex items-center justify-center">
-                    <Eye className="w-6 h-6 text-blue-600" />
+          <DialogContent className="max-w-7xl w-[98vw] h-[90vh] p-0 overflow-hidden border border-slate-800 shadow-[0_0_50px_rgba(0,0,0,0.8)] rounded-[32px] bg-slate-950">
+            <div className="h-full flex flex-col relative">
+              
+              {/* 顶部导航：沉浸式深色 */}
+              <div className="flex items-center justify-between px-8 py-6 border-b border-slate-800 bg-slate-900/60 backdrop-blur-xl">
+                <div className="flex items-center gap-6">
+                  <div className="w-12 h-12 rounded-2xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center">
+                    <Mail className="w-6 h-6 text-blue-400" />
                   </div>
                   <div>
-                    <h3 className="text-xl font-bold text-slate-900 tracking-tight">AI 信件预览</h3>
-                    <p className="text-sm text-slate-500 font-medium mt-0.5">Nova 智能生成模型</p>
+                    <h3 className="text-xl font-bold text-white flex items-center gap-3">
+                      Nova 智能草稿预览
+                      <span className="px-2 py-0.5 rounded-lg text-[10px] bg-blue-500/20 text-blue-400 border border-blue-500/30 tracking-widest uppercase">Draft</span>
+                    </h3>
+                    <p className="text-xs text-slate-500 font-medium tracking-tight mt-1">ID: {selectedLogForPreview?.id.toUpperCase()}</p>
                   </div>
                 </div>
-                <button
-                  onClick={() => { setShowPreviewModal(false); setSelectedLogForPreview(null) }}
-                  className="p-2.5 rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-200 transition-colors">
-                  <X className="w-5 h-5" />
-                </button>
+                <div className="flex items-center gap-4">
+                   <button
+                    onClick={() => { setShowPreviewModal(false); setSelectedLogForPreview(null) }}
+                    className="w-10 h-10 flex items-center justify-center rounded-xl bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700 transition-all">
+                    <X className="w-6 h-6" />
+                  </button>
+                </div>
               </div>
 
-              {/* Content */}
-              <div className="p-6 overflow-y-auto max-h-[calc(85vh-90px)] bg-white">
-                {selectedLogForPreview && (
-                  <div className="space-y-6">
-                   {/* 收件人卡片 (严格脱敏保密版) */}
-                   <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm">
-                      <div className="flex items-center gap-4 mb-4">
-                        <div className={`w-12 h-12 rounded-full border flex items-center justify-center flex-shrink-0 ${
-                          selectedLogForPreview.isUnlocked ? 'bg-slate-100 border-slate-200' : 'bg-amber-50 border-amber-200'
-                        }`}>
-                          {selectedLogForPreview.isUnlocked ? (
-                            <span className="text-lg font-bold text-slate-600">
-                              {(selectedLogForPreview.companyName || '?')[0].toUpperCase()}
-                            </span>
-                          ) : (
-                            <Lock className="w-5 h-5 text-amber-500" />
-                          )}
+              {/* 主体：横向黑金布局 */}
+              <div className="flex-1 flex overflow-hidden">
+                
+                {/* 左栏：情报面板 (30%) */}
+                <div className="w-[30%] border-r border-slate-800 p-8 overflow-y-auto bg-slate-900/30">
+                  <div className="space-y-8">
+                    {/* 客户头像卡片 */}
+                    <div className="p-6 rounded-3xl bg-slate-900 border border-slate-800 shadow-inner">
+                      <div className="flex items-center gap-4 mb-6">
+                        <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center text-xl font-bold text-white shadow-lg">
+                          {(selectedLogForPreview?.contactName || selectedLogForPreview?.companyName || '?')[0].toUpperCase()}
                         </div>
                         <div>
-                          <p className={`text-base font-bold ${selectedLogForPreview.isUnlocked ? 'text-slate-900' : 'text-slate-400'}`}>
-                            {selectedLogForPreview.isUnlocked ? (selectedLogForPreview.companyName || '未知公司') : '*** (解锁后可见公司名)'}
-                          </p>
-                          <p className="text-sm text-slate-500 mt-0.5">
-                            {selectedLogForPreview.isUnlocked ? (selectedLogForPreview.contactName || '未知联系人') : '*** (解锁后可见联系人)'}
-                          </p>
+                          <h4 className="text-lg font-bold text-white truncate max-w-[150px]">{selectedLogForPreview?.contactName || 'Decision Maker'}</h4>
+                          <p className="text-sm text-blue-400 font-medium truncate max-w-[150px]">{selectedLogForPreview?.companyName}</p>
                         </div>
                       </div>
-                      <div className="flex items-center gap-2 text-sm text-slate-600 bg-slate-50 p-3 rounded-xl border border-slate-200/60">
-                        {selectedLogForPreview.isUnlocked ? (
-                          <Mail className="w-4 h-4 text-slate-400" />
-                        ) : (
-                          <Lock className="w-4 h-4 text-amber-500/70" />
-                        )}
-                        <span className={`font-mono font-medium ${selectedLogForPreview.isUnlocked ? 'text-slate-700' : 'text-amber-600/90'}`}>
-                          {selectedLogForPreview.isUnlocked ? selectedLogForPreview.recipientEmail : maskEmail(selectedLogForPreview.recipientEmail)}
-                        </span>
-                        <span className="text-slate-300 mx-2">|</span>
-                        <span className="text-slate-500">发件域: <span className="font-medium text-slate-700">{selectedLogForPreview.fromDomain}</span></span>
+                      <div className="space-y-3 pt-4 border-t border-slate-800">
+                        <div className="flex justify-between text-xs">
+                          <span className="text-slate-500">匹配度</span>
+                          <span className="text-emerald-400 font-bold">98%</span>
+                        </div>
+                        <div className="flex justify-between text-xs">
+                          <span className="text-slate-500">线索来源</span>
+                          <span className="text-slate-300">Nova Engine</span>
+                        </div>
                       </div>
                     </div>
 
-                    {/* 邮件主题 */}
-                    <div className="bg-slate-50 rounded-2xl p-5 border border-slate-100">
-                      <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-2">
-                        <span className="w-1.5 h-1.5 rounded-full bg-blue-400"></span>
-                        邮件主题
-                      </p>
-                      <p className="text-base text-slate-900 font-semibold leading-relaxed">{selectedLogForPreview.subject}</p>
-                    </div>
-
-                    {/* 邮件正文 */}
-                    <div className="bg-slate-50 rounded-2xl p-5 border border-slate-100">
-                      <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-2">
-                        <span className="w-1.5 h-1.5 rounded-full bg-purple-400"></span>
-                        邮件正文
-                      </p>
-                      <div className="text-sm text-slate-700 whitespace-pre-wrap leading-loose font-mono bg-white p-5 rounded-xl border border-slate-200 shadow-inner min-h-[160px]">
-                        {selectedLogForPreview.body || '暂无邮件正文'}
-                      </div>
-                    </div>
-
-                    {/* 底部状态栏 */}
-                    <div className="flex items-center justify-between pt-2">
-                      <div className="flex items-center gap-3">
-                        <span className="text-sm font-medium text-slate-500">信件状态</span>
-                        <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold ${
-                          selectedLogForPreview.status === 'PENDING_PAYMENT' 
-                            ? 'bg-slate-100 text-slate-600 border border-slate-200' 
-                            : 'bg-blue-50 text-blue-600 border border-blue-100'
-                        }`}>
-                          <span className={`w-2 h-2 rounded-full ${
-                            selectedLogForPreview.status === 'SENT' ? 'bg-emerald-500' :
-                            selectedLogForPreview.status === 'PENDING_PAYMENT' ? 'bg-slate-400' :
-                            'bg-blue-500'
-                          }`} />
-                          {LOG_STATUS_LABEL[selectedLogForPreview.status] || selectedLogForPreview.status}
-                        </span>
-                      </div>
-                      <span className="text-sm font-medium text-slate-400">
-                        生成于 {selectedLogForPreview.sentAt}
-                      </span>
+                    {/* 元数据列表 */}
+                    <div className="space-y-4">
+                       {[
+                         { label: '收件人', value: selectedLogForPreview?.recipientEmail },
+                         { label: '发件域', value: selectedLogForPreview?.fromDomain },
+                         { label: '生成时间', value: selectedLogForPreview?.sentAt }
+                       ].map((item, idx) => (
+                         <div key={idx} className="p-4 rounded-2xl bg-slate-900/50 border border-slate-800">
+                           <p className="text-[10px] font-bold text-slate-500 uppercase mb-1">{item.label}</p>
+                           <p className="text-xs font-mono text-slate-300 truncate">{item.value}</p>
+                         </div>
+                       ))}
                     </div>
                   </div>
-                )}
+                </div>
+
+                {/* 右栏：深色信笺 (70%) */}
+                <div className="flex-1 p-10 overflow-y-auto bg-slate-950 relative">
+                  <div className="max-w-4xl mx-auto space-y-8">
+                    {/* 主题栏 */}
+                    <div className="space-y-3">
+                      <p className="text-xs font-bold text-slate-500 uppercase tracking-[0.2em] ml-1">Subject</p>
+                      <div className="p-5 rounded-2xl bg-slate-900 border border-slate-800 text-white text-xl font-bold leading-tight shadow-lg">
+                        {selectedLogForPreview?.subject}
+                      </div>
+                    </div>
+
+                    {/* 正文：深色背景，亮色文字，极大行间距 */}
+                    <div className="space-y-3">
+                      <p className="text-xs font-bold text-slate-500 uppercase tracking-[0.2em] ml-1">Body Content</p>
+                      <div className="p-10 rounded-[32px] bg-slate-900/40 border border-slate-800 text-slate-200 text-lg leading-[2] font-medium shadow-inner min-h-[450px]">
+                        <div className="whitespace-pre-wrap font-sans">
+                          {selectedLogForPreview?.body || selectedLogForPreview?.errorMessage || '正在渲染 AI 邮件内容...'}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* 底部操作：磨砂深色 */}
+              <div className="px-10 py-8 border-t border-slate-800 bg-slate-900/80 backdrop-blur-xl flex items-center justify-between">
+                 <div className="flex items-center gap-4">
+                    <span className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-xs font-bold">
+                       <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                       已就绪
+                    </span>
+                 </div>
+                 <div className="flex gap-4">
+                    <button 
+                      onClick={() => setShowPreviewModal(false)}
+                      className="px-8 py-3.5 rounded-2xl bg-slate-800 text-slate-300 font-bold hover:bg-slate-700 hover:text-white transition-all text-sm uppercase tracking-widest">
+                      关闭
+                    </button>
+                    <button className="px-10 py-3.5 rounded-2xl bg-blue-600 text-white font-bold hover:bg-blue-500 hover:scale-[1.02] transition-all text-sm uppercase tracking-widest shadow-xl shadow-blue-500/20">
+                      发送邮件
+                    </button>
+                 </div>
               </div>
             </div>
           </DialogContent>

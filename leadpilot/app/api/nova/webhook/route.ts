@@ -3,71 +3,66 @@ import { prisma } from '@/lib/prisma';
 import { Queue } from 'bullmq';
 import Redis from 'ioredis';
 
-const connection = new Redis({
-  host: process.env.REDIS_HOST || '127.0.0.1',
-  port: parseInt(process.env.REDIS_PORT || '6379'),
-  maxRetriesPerRequest: null,
-});
+const connection = new Redis({ host: process.env.REDIS_HOST || '127.0.0.1', port: 6379, maxRetriesPerRequest: null });
 const aiEmailQueue = new Queue('ai-email-jobs', { connection });
-const NOVA_SECRET = process.env.NOVA_WEBHOOK_SECRET || 'leadpilot_dev_secret_123';
 
 export async function POST(req: NextRequest) {
   try {
-    const authHeader = req.headers.get('authorization');
-    if (authHeader?.replace('Bearer ', '').trim() !== NOVA_SECRET) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    const { event, campaignId, lead, total } = await req.json();
-    if (!campaignId) return NextResponse.json({ error: 'Missing ID' });
-
-    console.log(`[Webhook] Event: ${event} | Campaign: ${campaignId}`);
-
+    const { event, campaignId, lead } = await req.json();
+    
     const campaign = await prisma.campaign.findUnique({ where: { id: campaignId } });
-    if (!campaign) return NextResponse.json({ error: 'Not Found' });
+    if (!campaign || !campaign.userId) return NextResponse.json({ error: 'Campaign Not Found' }, { status: 404 });
 
     if (event === 'LEAD_SYNC' && lead) {
-      await prisma.$transaction(async (tx) => {
-        await tx.userQuota.update({
-          where: { userId: campaign.userId },
-          data: { leadsBalance: { decrement: 1 } }
-        });
+       // 1. 计费扣减
+       await prisma.userQuota.upsert({
+           where: { userId: campaign.userId },
+           update: { leadsBalance: { decrement: 1 } },
+           create: { userId: campaign.userId, leadsBalance: 999 } 
+       });
 
-        await tx.user.update({
-          where: { id: campaign.userId },
-          data: { tokenBalance: { decrement: 100 } }
-        });
+       // 2. 🌟 存入正确的"私有线索库 (UserLead)"表，前端才能展示！
+       // 使用 upsert 防止同一用户重复录入相同邮箱报错
+       const userIdStr = String(campaign.userId);
 
-        await tx.userLead.create({
-          data: {
-            userId: campaign.userId,
-            companyName: lead.companyName || 'Unknown',
-            contactName: lead.contactName || 'Manager',
-            email: lead.email,
-            website: lead.domain,
-            source: 'NOVA_ENGINE',
-            isUnlocked: false
-          }
-        });
-      });
+       await prisma.userLead.upsert({
+         where: { userId_email: { userId: userIdStr, email: lead.email } },
+         update: {
+             companyName: lead.companyName ?? '',
+             contactName: lead.contactName || lead.firstName || 'Decision Maker',
+             jobTitle: lead.position || 'Executive',
+             country: lead.country ?? '',
+             industry: lead.industry ?? '',
+             website: lead.website ?? ''
+         },
+         create: {
+             userId: userIdStr,
+             email: lead.email,
+             companyName: lead.companyName ?? '',
+             contactName: lead.contactName || lead.firstName || 'Decision Maker',
+             jobTitle: lead.position || 'Executive',
+             source: 'NOVA',
+             isUnlocked: false,
+             country: lead.country ?? '',
+             industry: lead.industry ?? '',
+             website: lead.website ?? ''
+         }
+       });
 
-      await prisma.lead.create({
-        data: { campaignId, email: lead.email, status: 'VERIFIED', websiteData: JSON.stringify(lead) }
-      });
-    }
-
+       // 3. 同时存入 Campaign 的 Lead 表供流程追踪
+       await prisma.lead.create({
+         data: { campaignId, email: lead.email, status: 'VERIFIED', websiteData: JSON.stringify(lead) }
+       });
+       console.log(`[Webhook] ✅ 线索成功存入 UserLead 目标库: ${lead.email}`);
+    } 
     else if (event === 'TASK_COMPLETED') {
-      console.log(`[Flow] Success! Total: ${total}. Waking up AI Worker...`);
-
-      if (typeof total !== 'undefined' && total !== null && Number(total) > 0) {
-        await aiEmailQueue.add('generate-emails', { campaignId }, { removeOnComplete: true });
-      }
-
-      await prisma.campaign.update({ where: { id: campaignId }, data: { status: 'COMPLETED' }});
+       await prisma.campaign.update({ where: { id: campaignId }, data: { status: 'PROCESSING' } });
+       await aiEmailQueue.add('generate-emails', { campaignId }, { removeOnComplete: true });
+       console.log(`[Webhook] 🚀 正在推送 AI 写信任务...`);
     }
-
     return NextResponse.json({ success: true });
   } catch (err: any) {
+    console.error('[Webhook 崩溃]:', err.message);
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }

@@ -1,17 +1,22 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireAdminRole } from '@/lib/admin-auth'
+import { ApiBalanceService } from '@/lib/services/ApiBalanceService'
 
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {
+    // 1. 🛡️ 鉴权 (超级管理员、财务、运维专用)
     const auth = await requireAdminRole(['SUPER_ADMIN', 'FINANCE', 'OPS'])
     if (!auth || !auth.ok) {
       return auth?.response || NextResponse.json({ error: '权限不足' }, { status: 401 })
     }
 
-    // 1. 抓取近 30 天的动态 API 消耗 (用于底部成本雷达)
+    // 2. 🛰️ 动态探针：实时抓取 Apollo / Hunter / ZeroBounce / DeepSeek 等余额
+    const apiBalances = await ApiBalanceService.getAllBalances();
+
+    // 3. 📊 成本雷达：抓取近 30 天消耗统计
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
     
@@ -21,38 +26,45 @@ export async function GET() {
       where: { createdAt: { gte: thirtyDaysAgo } }
     });
 
-    // 2. 抓取您的固定基建采购 (用于右上角物理节点)
+    // 4. 🏢 物理资产：固定采购清单
     const fixedCosts = await prisma.fixedCost.findMany({
       where: { isActive: true },
       orderBy: { createdAt: 'desc' }
     });
 
-    // 3. 【史诗级加强】全节点环境连通性雷达扫描
+    // 5. 🔍 全量布线检查 (已根据老板审查建议：全量补回)
     const envStatus = {
-      // AI 双核
+      // AI 核心
       deepseek: !!process.env.DEEPSEEK_API_KEY,
       gemini: !!process.env.GEMINI_API_KEY,
-      // 获客双源
+      openai: !!process.env.OPENAI_API_KEY,
+      // 获客与清洗
       apollo: !!process.env.APOLLO_API_KEY,
       hunter: !!process.env.HUNTER_API_KEY,
-      // 触达与防封控
-      workspace: !!process.env.WORKSPACE_API_KEY,
-      namecheap: !!process.env.NAMECHEAP_API_KEY,
-      zerobounce: !!process.env.EMAIL_VALIDATION_API_KEY,
+      zerobounce: !!process.env.ZEROBOUNCE_API_KEY,
+      // 投递与域名
       resend: !!process.env.RESEND_API_KEY,
-      // 支付与安全
-      wechat: !!process.env.WECHAT_PAY_SECRET,
-      alipay: !!process.env.ALIPAY_PRIVATE_KEY,
+      namecheap: !!process.env.NAMECHEAP_API_KEY,
+      smartlead: !!process.env.SMARTLEAD_API_KEY,
+      // 阿里云与基建 (🌟 补回)
+      oss: !!process.env.OSS_ACCESS_KEY,
       aliyun_sms: !!process.env.ALIYUN_SMS_KEY,
-      turnstile: !!process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY,
-      // 底层基建
       database: !!process.env.DATABASE_URL,
       redis: !!process.env.REDIS_URL,
-      oss: !!process.env.OSS_ACCESS_KEY,
-      sentry: !!process.env.NEXT_PUBLIC_SENTRY_DSN
+      // 安全与监控 (🌟 补回)
+      turnstile: !!process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY,
+      sentry: !!process.env.NEXT_PUBLIC_SENTRY_DSN,
+      // 支付网关
+      wechat: !!process.env.WECHAT_PAY_SECRET,
+      alipay: !!process.env.ALIPAY_PRIVATE_KEY
     }
 
-    return NextResponse.json({ apiLogs, fixedCosts, envStatus })
+    return NextResponse.json({ 
+      apiBalances, 
+      apiLogs, 
+      fixedCosts, 
+      envStatus 
+    })
     
   } catch (error: any) {
     console.error('❌ [监控API报错]:', error);

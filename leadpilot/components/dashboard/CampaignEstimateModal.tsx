@@ -1,7 +1,8 @@
 'use client'
 
+import React, { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Zap, X, Loader2, Rocket, AlertTriangle, TrendingUp, Users, Cpu, Shield } from 'lucide-react'
+import { Zap, X, Loader2, Rocket, AlertTriangle, TrendingUp, Users, Cpu, Shield, ArrowRight } from 'lucide-react'
 import Link from 'next/link'
 
 interface CampaignEstimateModalProps {
@@ -42,6 +43,41 @@ function InsufficientState({ balance }: { balance: number }) {
   )
 }
 
+function TrialState({ onConfirm, loading }: { onConfirm: (count: number) => void, loading: boolean }) {
+  return (
+    <div className="space-y-5">
+      <div className="relative rounded-2xl overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-to-br from-emerald-600/10 via-teal-600/5 to-slate-900" />
+        <div className="absolute inset-0 border border-emerald-500/20 rounded-2xl" />
+        <div className="relative px-5 py-6 text-center">
+           <div className="w-12 h-12 rounded-full bg-emerald-500/20 text-emerald-400 mx-auto flex items-center justify-center mb-4">
+              <Shield className="w-6 h-6" />
+            </div>
+            <h3 className="text-xl font-bold text-white mb-2">免费验证体验</h3>
+            <p className="text-sm text-slate-300 mb-6 leading-relaxed">
+              作为体验用户，本次任务将为您免费挖掘并验证 <strong className="text-emerald-400 text-lg mx-1">3</strong> 个精准客户线索，直达您的私有线索库。
+            </p>
+            <div className="text-xs text-slate-400 bg-slate-900/50 rounded-lg p-3 border border-slate-800">
+              ⚠️ 体验版不包含 AI 邮件定制与全自动投递功能。
+            </div>
+        </div>
+      </div>
+      <motion.button
+        onClick={() => onConfirm(3)} // 强行锁定传参为 3
+        disabled={loading}
+        whileHover={!loading ? { scale: 1.01 } : {}}
+        whileTap={!loading ? { scale: 0.98 } : {}}
+        className="w-full py-4 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-base flex items-center justify-center gap-3 transition-all shadow-xl shadow-emerald-500/25 disabled:opacity-60"
+      >
+        {loading ? <><Loader2 className="w-5 h-5 animate-spin" /> 启动中...</> : <><Rocket className="w-5 h-5" /> 免费启动寻源</>}
+      </motion.button>
+      <Link href="/billing" className="block text-center text-xs text-slate-400 hover:text-white transition-colors">
+        想要百倍效率？了解高级套餐 <ArrowRight className="w-3 h-3 inline pb-0.5"/>
+      </Link>
+    </div>
+  )
+}
+
 function SufficientState({
   balance,
   maxLeads,
@@ -50,10 +86,17 @@ function SufficientState({
 }: {
   balance: number
   maxLeads: number
-  onConfirm: () => void
+  onConfirm: (count: number) => void
   loading: boolean
 }) {
-  const usagePct = Math.min((maxLeads * COST_PER_LEAD) / balance, 1)
+  // 新增交互：用户选定的数量
+  const [selectedLeads, setSelectedLeads] = useState(Math.max(1, Math.min(10, maxLeads)))
+
+  useEffect(() => {
+    setSelectedLeads(Math.max(1, Math.min(10, maxLeads)))
+  }, [maxLeads])
+
+  const usagePct = Math.min((selectedLeads * COST_PER_LEAD) / balance, 1)
 
   return (
     <div className="space-y-5">
@@ -93,13 +136,30 @@ function SufficientState({
               </span>
               <span className="text-sm text-slate-400">tokens</span>
             </div>
-            <p className="text-sm text-slate-300 mt-2">
-              本次任务全速运转预计最多可深度触达
+            
+            {/* 新增滑块：配置触达数量 */}
+            <p className="text-sm text-slate-300 mt-4">
+              拖动滑块配置本次目标客户数
             </p>
+            <div className="px-4 mt-3 mb-2">
+              <input
+                type="range"
+                min={1}
+                max={maxLeads}
+                value={selectedLeads}
+                onChange={(e) => setSelectedLeads(Number(e.target.value))}
+                className="w-full h-1.5 bg-slate-700/80 rounded-lg appearance-none cursor-pointer accent-purple-500"
+              />
+              <div className="flex justify-between mt-1.5 text-[10px] text-slate-500">
+                <span>1</span>
+                <span>最高 {maxLeads.toLocaleString()}</span>
+              </div>
+            </div>
+
             <div className="mt-2 inline-flex items-baseline gap-1">
               <motion.span
-                key={maxLeads}
-                initial={{ scale: 0.7, opacity: 0 }}
+                key={selectedLeads}
+                initial={{ scale: 0.9, opacity: 0.5 }}
                 animate={{ scale: 1, opacity: 1 }}
                 transition={{ type: 'spring', stiffness: 300, damping: 20 }}
                 className="text-6xl font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-purple-400 to-blue-400 tabular-nums"
@@ -107,11 +167,10 @@ function SufficientState({
                   textShadow: '0 0 40px rgba(139,92,246,0.4)',
                 }}
               >
-                {maxLeads.toLocaleString()}
+                {selectedLeads.toLocaleString()}
               </motion.span>
               <span className="text-lg font-bold text-slate-300">个</span>
             </div>
-            <p className="text-sm text-slate-300 mt-1">目标客户</p>
           </div>
 
           {/* 消耗进度条 */}
@@ -119,14 +178,14 @@ function SufficientState({
             <div className="flex items-center justify-between mb-1.5">
               <span className="text-[10px] text-slate-500 font-medium">本次任务预计消耗</span>
               <span className="text-[10px] font-mono text-slate-400">
-                {(maxLeads * COST_PER_LEAD).toLocaleString()} / {balance.toLocaleString()} tokens
+                {(selectedLeads * COST_PER_LEAD).toLocaleString()} / {balance.toLocaleString()} tokens
               </span>
             </div>
             <div className="w-full h-1.5 bg-slate-700/60 rounded-full overflow-hidden">
               <motion.div
                 initial={{ width: 0 }}
                 animate={{ width: `${Math.round(usagePct * 100)}%` }}
-                transition={{ duration: 1.2, ease: 'easeOut', delay: 0.3 }}
+                transition={{ duration: 0.5, ease: 'easeOut' }}
                 className="h-full rounded-full"
                 style={{
                   background: 'linear-gradient(90deg, #3b82f6, #8b5cf6)',
@@ -136,7 +195,7 @@ function SufficientState({
             </div>
             <div className="flex justify-between mt-1">
               <span className="text-[9px] text-slate-600">0</span>
-              <span className="text-[9px] text-slate-600">剩余 {(balance - maxLeads * COST_PER_LEAD).toLocaleString()} tokens</span>
+              <span className="text-[9px] text-slate-600">剩余 {(balance - selectedLeads * COST_PER_LEAD).toLocaleString()} tokens</span>
             </div>
           </div>
         </div>
@@ -148,7 +207,7 @@ function SufficientState({
           {
             icon: <Users className="w-3.5 h-3.5" />,
             label: '目标触达',
-            value: `~${maxLeads} 人`,
+            value: `~${selectedLeads.toLocaleString()} 人`,
             color: 'text-blue-400',
             bg: 'bg-blue-500/10 border-blue-500/20',
           },
@@ -162,7 +221,7 @@ function SufficientState({
           {
             icon: <TrendingUp className="w-3.5 h-3.5" />,
             label: '预计消耗',
-            value: `~${(maxLeads * COST_PER_LEAD).toLocaleString()}`,
+            value: `~${(selectedLeads * COST_PER_LEAD).toLocaleString()}`,
             color: 'text-emerald-400',
             bg: 'bg-emerald-500/10 border-emerald-500/20',
           },
@@ -183,7 +242,7 @@ function SufficientState({
 
       {/* 底部 CTA */}
       <motion.button
-        onClick={onConfirm}
+        onClick={() => onConfirm(selectedLeads)}
         disabled={loading}
         whileHover={!loading ? { scale: 1.01 } : {}}
         whileTap={!loading ? { scale: 0.98 } : {}}
@@ -218,16 +277,22 @@ export function CampaignEstimateModal({
   currentTokenBalance,
   subscriptionTier,
 }: CampaignEstimateModalProps) {
+  const isFreeTier = subscriptionTier === 'FREE' || subscriptionTier === 'TRIAL'
   const maxLeads = Math.floor(currentTokenBalance / COST_PER_LEAD)
-  const insufficient = maxLeads < 1
+  const insufficient = !isFreeTier && maxLeads < 1
 
-  const handleConfirm = async () => {
-    if (insufficient) return
+  const [isSubmitting, setIsSubmitting] = useState(false)
+
+  const handleConfirm = async (count: number) => {
+    if (insufficient && !isFreeTier) return
+    setIsSubmitting(true)
     try {
-      await onConfirm(maxLeads)
+      await onConfirm(count)
       onClose()
     } catch (_e) {
       // error handled by caller
+    } finally {
+      setIsSubmitting(false)
     }
   }
 
@@ -268,12 +333,12 @@ export function CampaignEstimateModal({
                 {/* Header */}
                 <div className="flex items-center justify-between px-6 pt-5 pb-4">
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center shadow-lg shadow-purple-500/30">
-                      <Zap className="w-5 h-5 text-white" />
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-lg ${isFreeTier ? 'bg-emerald-500/20 text-emerald-400 shadow-emerald-500/20' : 'bg-gradient-to-br from-blue-500 to-purple-600 text-white shadow-purple-500/30'}`}>
+                      <Zap className="w-5 h-5" />
                     </div>
                     <div>
-                      <h2 className="text-lg font-bold text-white leading-tight">Nova 战术确认</h2>
-                      <p className="text-xs text-slate-500">AI 任务启动前评估</p>
+                      <h2 className="text-lg font-bold text-white leading-tight">Nova 战术部署</h2>
+                      <p className="text-xs text-slate-500">{isFreeTier ? '体验版参数锁定' : 'AI 任务启动前评估'}</p>
                     </div>
                   </div>
                   <button
@@ -287,7 +352,7 @@ export function CampaignEstimateModal({
                 {/* 套餐标签 */}
                 {subscriptionTier && subscriptionTier !== '未订阅' && (
                   <div className="mx-6 mb-4">
-                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-purple-500/15 text-purple-400 border border-purple-500/25">
+                    <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold border ${isFreeTier ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/25' : 'bg-purple-500/15 text-purple-400 border-purple-500/25'}`}>
                       {subscriptionTier}
                     </span>
                   </div>
@@ -295,14 +360,16 @@ export function CampaignEstimateModal({
 
                 {/* 主体内容 */}
                 <div className="px-6 pb-6">
-                  {insufficient ? (
+                  {isFreeTier ? (
+                    <TrialState onConfirm={handleConfirm} loading={isSubmitting} />
+                  ) : insufficient ? (
                     <InsufficientState balance={currentTokenBalance} />
                   ) : (
                     <SufficientState
                       balance={currentTokenBalance}
                       maxLeads={maxLeads}
                       onConfirm={handleConfirm}
-                      loading={false}
+                      loading={isSubmitting}
                     />
                   )}
                 </div>

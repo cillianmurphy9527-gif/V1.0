@@ -2,17 +2,15 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth/next'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { getQuotaStatus } from '@/lib/services/quota'
+// 🌟 改为直接调用 QuotaManager，实施硬拦截与预扣费
+import { QuotaManager } from '@/lib/services/quota'
 
-// 🧠 核心新增：AI 隐形翻译官
-// 将客户随手输入的中文，瞬间转化为专业的英文布尔搜索指令
 async function optimizeSearchQuery(industry: string, keywords: string[]): Promise<string> {
   const rawInput = `${industry} ${keywords.join(' ')}`.trim()
   if (!rawInput) return 'China'
 
-  // 读取您系统现有的 AI 秘钥 (优先用便宜强大的 DeepSeek)
   const apiKey = process.env.DEEPSEEK_API_KEY || process.env.OPENAI_API_KEY
-  if (!apiKey) return rawInput // 如果没配置秘钥，就原样返回兜底
+  if (!apiKey) return rawInput
 
   const isDeepSeek = !!process.env.DEEPSEEK_API_KEY
   const baseUrl = isDeepSeek ? 'https://api.deepseek.com/chat/completions' : 'https://api.openai.com/v1/chat/completions'
@@ -50,14 +48,12 @@ async function optimizeSearchQuery(industry: string, keywords: string[]): Promis
 
 export async function POST(request: NextRequest) {
   try {
-    // ─── 1. 鉴权 ───────────────────────────────────────────
     const session = await getServerSession(authOptions)
     if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized', code: 'UNAUTHORIZED' }, { status: 401 })
     }
     const userId = session.user.id
 
-    // ─── 2. 解析请求体 ─────────────────────────────────────
     const body = await request.json()
     const { targetAudience, targetCount = 50, knowledgeBaseIds = [] } = body
 
@@ -65,31 +61,32 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'targetAudience is required' }, { status: 400 })
     }
 
-    // ─── 3. 核验用户配额 ────────────────────────────────────
-    const quotaStatus = await getQuotaStatus(userId)
-    if (quotaStatus.leadsBalance < targetCount) {
+    // 🌟 核心拦截升级：先扣费 / 拦截白嫖！
+    // 免费用户如果 targetCount > 3，这里会直接抛错被 catch 捕获。
+    // 付费用户如果额度不够，也会在这里直接被拦截。
+    // 如果额度够，这里会直接先把额度扣除（相当于押金）。
+    const deductResult = await QuotaManager.consumeLead(userId, targetCount);
+    
+    if (!deductResult.success || deductResult.error) {
       return NextResponse.json(
         {
-          error: '线索余额不足',
-          code: 'INSUFFICIENT_QUOTA',
+          error: deductResult.error?.message || '线索余额不足',
+          code: deductResult.error?.code || 'INSUFFICIENT_QUOTA',
           required: targetCount,
-          current: quotaStatus.leadsBalance,
           upgrade: true,
         },
         { status: 403 }
       )
     }
 
-    // ─── 4. 【核心截流】调用 AI 翻译客户意图 ────────────────
+    // ─── 4. 调用 AI 翻译客户意图 ────────────────
     const rawIndustry = targetAudience.industry || ''
     const rawKeywords = targetAudience.keywords || []
-    
-    // 把中文转化为专业的英文查询词
     const optimizedEnglishQuery = await optimizeSearchQuery(rawIndustry, rawKeywords)
 
     const audienceConfig = {
-      originalInput: { industry: rawIndustry, keywords: rawKeywords }, // 留底给老板查账用
-      searchQuery: optimizedEnglishQuery, // 👈 这是真正喂给泥头车引擎的子弹！
+      originalInput: { industry: rawIndustry, keywords: rawKeywords },
+      searchQuery: optimizedEnglishQuery, 
       country: targetAudience.country || 'CN',
     }
 
@@ -106,13 +103,12 @@ export async function POST(request: NextRequest) {
         logs: JSON.stringify([{
           timestamp: new Date().toISOString(),
           level: 'INFO',
-          message: '任务已创建，AI 已完成搜索指令翻译',
+          message: '任务已创建，配额已锁定，AI 已完成搜索指令翻译',
           details: { targetCount, audienceConfig, knowledgeBaseIds },
         }]),
       },
     })
 
-    // ─── 6. 立即返回 jobId ─────────────────────────
     return NextResponse.json({
       success: true,
       jobId: novaJob.id,
@@ -123,8 +119,14 @@ export async function POST(request: NextRequest) {
       pollInterval: 5000,
     })
 
-  } catch (error) {
+  } catch (error: any) {
     console.error('[NovaLaunch] Error:', error)
+    
+    // 如果抛出的是配额错误，返回 403
+    if (error.name === 'QuotaServiceError') {
+        return NextResponse.json({ error: error.message, code: error.code, upgrade: true }, { status: 403 })
+    }
+
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 })
   }
 }

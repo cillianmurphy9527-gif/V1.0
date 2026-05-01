@@ -1,11 +1,12 @@
+import { ApiBalanceService } from '@/lib/services/ApiBalanceService';
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireAdminRole } from '@/lib/admin-auth';
 
-/**
- * GET /api/admin/dashboard/stats
- * Admin 全局数据大盘：严格读取真实数据库，绝不使用 Mock 数据
- */
+// ─── 成本费率常量（对齐财务大盘） ────────────────────────────────
+const AI_COST_PER_1K_TOKENS = parseFloat(process.env.AI_COST_PER_1K_TOKENS || '0.001')
+const EMAIL_COST_PER_SEND = parseFloat(process.env.EMAIL_COST_PER_SEND || '0.007')
+
 export async function GET() {
   try {
     // 1. 🛡️ 鉴权
@@ -13,77 +14,111 @@ export async function GET() {
     if (!auth.ok) return auth.response;
 
     // ====================================================================
-    // 💰 第一部分：计算真实入账 (只统计状态为 PAID 且未全额退款的订单)
+    // 💰 第一部分：全局收入与退款 (真实数据)
     // ====================================================================
-    const paidOrders = await prisma.order.findMany({
-      where: { 
-        status: 'PAID',
-        refundStatus: { not: 'COMPLETED' } // 排除已退款的
+    const paidAgg = await prisma.order.aggregate({
+      where: { status: 'PAID' },
+      _sum: { amount: true }
+    });
+    const totalRevenue = paidAgg._sum.amount ?? 0;
+
+    const refundAgg = await prisma.order.aggregate({
+      where: { status: 'REFUNDED' },
+      _sum: { amount: true }
+    });
+    const totalRefund = refundAgg._sum.amount ?? 0;
+    const netRevenue = totalRevenue - totalRefund;
+
+    // ====================================================================
+    // 🩸 第二部分：全口径成本追踪 (精算到厘)
+    // ====================================================================
+    // A. AI 算力成本 (DeepSeek / OpenAI)
+    const tokenTxs = await prisma.tokenTransaction.aggregate({
+      where: { amount: { lt: 0 }, reason: { notIn: ['ADMIN_BAN_CONFISCATE', 'REFUND'] } },
+      _sum: { amount: true }
+    });
+    const aiCost = (Math.abs(tokenTxs._sum.amount ?? 0) / 1000) * AI_COST_PER_1K_TOKENS;
+
+    // B. 邮件投递成本 (Resend)
+    const emailsSent = await prisma.sendingLog.count({
+      where: { status: { in: ['SENT', 'OPENED', 'CLICKED', 'REPLIED'] } }
+    });
+    const emailCost = emailsSent * EMAIL_COST_PER_SEND;
+
+    // C. 外部采购成本 (精准匹配真实技术栈)
+    const externalCosts = await prisma.systemCostLog.groupBy({
+      by: ['provider'],
+      _sum: { costCny: true }
+    });
+
+    let apolloCost = 0, 
+        hunterCost = 0, 
+        zeroBounceCost = 0, 
+        namecheapCost = 0, 
+        smartleadCost = 0, // 🌟 新增 Smartlead 统计
+        otherCost = 0;
+
+    externalCosts.forEach(item => {
+      const cost = item._sum.costCny ?? 0;
+      switch(item.provider) {
+        case 'APOLLO': apolloCost += cost; break;      // 🌟 修正为 APOLLO
+        case 'HUNTER': hunterCost += cost; break;
+        case 'ZEROBOUNCE': zeroBounceCost += cost; break;
+        case 'NAMECHEAP': namecheapCost += cost; break;
+        case 'SMARTLEAD': smartleadCost += cost; break; // 🌟 接入 Smartlead
+        default: 
+          // 排除掉已经单独核算的 AI 和邮件供应商
+          if(item.provider !== 'OPENAI' && item.provider !== 'DEEPSEEK' && item.provider !== 'RESEND') {
+             otherCost += cost; 
+          }
+          break;
       }
     });
-    const totalRevenue = paidOrders.reduce((sum, order) => sum + order.amount, 0);
+
+    const totalExternalCost = apolloCost + hunterCost + zeroBounceCost + namecheapCost + smartleadCost + otherCost;
+    const realHardCost = aiCost + emailCost + totalExternalCost;
 
     // ====================================================================
-    // 🩸 第二部分：严格计算“发生过”的真实硬成本
+    // 📈 第三部分：纯利润与运营指标
     // ====================================================================
-    
-    // A. 算力消耗成本
-    // 逻辑：只抓取流水表里 amount < 0 的记录，并且排除掉管理员手动清空、封禁和退款扣除的算力
-    const tokenTxs = await prisma.tokenTransaction.findMany({
-      where: { 
-        amount: { lt: 0 },
-        reason: { notIn: ['ADMIN_BAN_CONFISCATE', 'REFUND'] } 
-      }
-    });
-    const tokensConsumed = tokenTxs.reduce((sum, tx) => sum + Math.abs(tx.amount), 0);
-    
-    // 【成本定价器】：假设每 1,000,000 Token 调用 DeepSeek 等接口的成本是 2.0 元 (您可自行调整)
-    const tokenCost = (tokensConsumed / 1000000) * 2.0;
+    const netProfit = netRevenue - realHardCost;
 
-    // B. 域名基建成本
-    // 逻辑：不管送了多少域名额度，只看数据库里真正由系统向海外注册局买下的域名数
-    const domainCount = await prisma.domain.count();
-    
-    // 【成本定价器】：假设每个发信域名的硬成本是 120 元 (包含首年注册+代理费)
-    const domainCost = domainCount * 120.0;
-
-    // 最终硬成本 = 实际消耗的 API 费 + 实际买下的域名费
-    const realHardCost = tokenCost + domainCost;
-
-    // ====================================================================
-    // 📈 第三部分：计算纯利与其他指标
-    // ====================================================================
-    const netProfit = totalRevenue - realHardCost;
-
-    // 获取今日新增用户
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
-    const newUsers = await prisma.user.count({
-      where: { createdAt: { gte: startOfToday } }
-    });
-    
-    // 获取正在排队运行的拓客任务
-    const queuedTasks = await prisma.campaign.count({
-      where: { status: 'RUNNING' }
-    });
+    const newUsers = await prisma.user.count({ where: { createdAt: { gte: startOfToday } } });
+    const queuedTasks = await prisma.campaign.count({ where: { status: 'RUNNING' } });
 
     // ====================================================================
-    // 📤 返回给前端大盘
+    // 🛢️ 第四部分：抓取真实的 API 水位
+    // ====================================================================
+    const realApiBalances = await ApiBalanceService.getAllBalances();
+
+    // ====================================================================
+    // 📤 返回给总指挥部前端
     // ====================================================================
     return NextResponse.json({
       todayStats: {
-        newUsers: newUsers,
-        totalRevenue: totalRevenue,
-        creditsConsumed: realHardCost, // 前端显示的“API真实硬成本”
-        emailsSent: 0, // 后续接上发信服务后统计
-        queuedTasks: queuedTasks,
-        filteredLeads: 0,
-        netProfit: netProfit
+        newUsers,
+        totalRevenue,
+        totalRefund,
+        netRevenue,
+        creditsConsumed: realHardCost,
+        emailsSent,
+        queuedTasks,
+        netProfit
       },
-      // 保留以下空数组，防止前端图表组件因找不到数据而崩溃
-      recentActivities: [],
-      revenueTrend: [],
-      mrrBreakdown: { subscription: 0, addon: 0 }
+      // 🌟 这里必须传给前端，否则看板的饼图/列表会显示 0
+      costBreakdown: {
+        aiCost, 
+        emailCost, 
+        apolloCost, 
+        hunterCost, 
+        zeroBounceCost, 
+        namecheapCost, 
+        smartleadCost, // 🌟 返回给前端展示
+        otherCost 
+      },
+      apiBalances: realApiBalances
     });
 
   } catch (error: any) {

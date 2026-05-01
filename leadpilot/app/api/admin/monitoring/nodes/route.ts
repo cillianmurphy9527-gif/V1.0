@@ -2,64 +2,60 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireAdminRole } from '@/lib/admin-auth'
 
-// 强制不缓存
 export const dynamic = 'force-dynamic';
 
-// 🚀 修复1：完全移除 GET 的参数，杜绝“未使用变量”的报错
+// GET: 获取手动添加的节点
 export async function GET() { 
   try {
     const auth = await requireAdminRole(['SUPER_ADMIN', 'OPS'])
     if (!auth.ok) return auth.response
-
     const nodes = await prisma.monitoringNode.findMany({
-      where: { isActive: true },
       orderBy: { createdAt: 'asc' }
     });
-
-    // 🚀 修复2：给初始的空对象加上强类型断言 {} as Record<string, any>
     const groupedData = nodes.reduce((acc, node) => {
       if (!acc[node.category]) {
-        acc[node.category] = {
-          title: getCategoryTitle(node.category),
-          nodes: []
-        }
+        acc[node.category] = { title: getCategoryTitle(node.category), nodes: [] }
       }
-      
-      const envRecord = process.env as Record<string, string | undefined>;
-      const isConnected = !!envRecord[node.envKey];
-
       acc[node.category].nodes.push({
         id: node.id,
         label: node.name,
         envKey: node.envKey,
         description: node.description,
-        active: isConnected 
+        active: !!process.env[node.envKey] 
       });
-      
       return acc;
     }, {} as Record<string, any>);
-
     return NextResponse.json(Object.values(groupedData))
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 }
 
-// POST 接口需要保留 request 因为要读取 body
+// POST: 新增节点
 export async function POST(request: NextRequest) {
   try {
     const auth = await requireAdminRole(['SUPER_ADMIN', 'OPS'])
     if (!auth.ok) return auth.response
-    
     const body = await request.json()
-    const { name, category, envKey, description } = body
-    
-    const node = await prisma.monitoringNode.create({
-      data: { name, category, envKey, description }
-    })
+    const node = await prisma.monitoringNode.create({ data: body })
     return NextResponse.json(node)
   } catch (error: any) {
     return NextResponse.json({ error: '新增失败' }, { status: 500 })
+  }
+}
+
+// 🚀 核心修复：增加 DELETE 接口，解决“移除失败”
+export async function DELETE(request: NextRequest) {
+  try {
+    const auth = await requireAdminRole(['SUPER_ADMIN'])
+    if (!auth.ok) return auth.response
+    const { searchParams } = new URL(request.url)
+    const id = searchParams.get('id')
+    if (!id) return NextResponse.json({ error: '缺少 ID' }, { status: 400 })
+    await prisma.monitoringNode.delete({ where: { id } })
+    return NextResponse.json({ success: true })
+  } catch (error: any) {
+    return NextResponse.json({ error: '后端删除失败' }, { status: 500 })
   }
 }
 
