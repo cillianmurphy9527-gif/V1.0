@@ -18,8 +18,8 @@ dist/
 .DS_Store
 Thumbs.db
 
-# 过滤动态生成的本地数据库/配置文件（极其重要，防止本地测试数据覆盖线上真实生意！）
-pricing_store.jsonnode_modules/
+pricing_store.json
+node_modules/
 .env
 .env.local
 .DS_Store
