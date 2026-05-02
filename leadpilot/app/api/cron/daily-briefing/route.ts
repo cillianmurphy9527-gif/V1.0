@@ -1,14 +1,15 @@
 /**
- * AI 每日简报 · Vercel Cron 触发器（财务级升级版）
+ * AI 每日简报 · 阿里云 Cron 触发器（财务级升级版）
  *
- * 触发方式：Vercel Cron Job，每天 UTC 00:00（北京时间 08:00）自动 GET 此接口。
- * 安全防御：Authorization: Bearer <CRON_SECRET>
+ * 触发方式：内部通过 node-cron 在 08:00 发起请求调用此接口。
+ * 安全防御：Authorization: Bearer <CRON_SECRET> + Redis 分布式锁防重复触发
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { notificationService } from '@/lib/notification.service'
 import { LLMService } from '@/services/LLMService'
+import { acquireLock } from '@/lib/redis'
 
 // ─── 成本费率常量（可通过环境变量覆盖）────────────────────────────────
 const AI_COST_PER_1K_TOKENS = parseFloat(process.env.AI_COST_PER_1K_TOKENS || '0.001')
@@ -50,6 +51,15 @@ export async function GET(request: NextRequest) {
 
   const { start, end, label } = getYesterdayRange()
   console.log(`[DailyBriefing] 开始生成 ${label} 简报，时间范围：${start.toISOString()} ~ ${end.toISOString()}`)
+
+  // 🌟 核心修复：使用系统内置的 acquireLock 防并发，锁的有效期设置为 600 秒 (10分钟)
+  const lockKey = `cron:daily-briefing:lock:${label}`
+  const acquired = await acquireLock(lockKey, 600)
+  
+  if (!acquired) {
+    console.log(`[DailyBriefing] 🛑 检测到并发触发，当前日期 ${label} 的简报已有其他进程接管，本次请求直接跳过。`)
+    return NextResponse.json({ success: true, message: 'Skipped by concurrency lock' })
+  }
 
   try {
     // ══════════════════════════════════════════════════════════════
@@ -117,6 +127,7 @@ export async function GET(request: NextRequest) {
         case 'HUNTER': hunterCost += cost; break;
         case 'ZEROBOUNCE': zeroBounceCost += cost; break;
         case 'NAMECHEAP': namecheapCost += cost; break;
+        case 'APOLLO': apolloCost += cost; break;
         default: 
           // 排除掉已经单独计算过的 AI 和 邮件服务
           if(item.provider !== 'OPENAI' && item.provider !== 'DEEPSEEK' && item.provider !== 'RESEND') {
@@ -221,7 +232,6 @@ ${JSON.stringify(financialSnapshot, null, 2)}
       aiReport = `⚠️ **测试模式**：当前未配置 AI API Key，无法生成智能战报。当前提取到的总成本为: ¥${fmt(totalCost)}，净利润: ¥${fmt(netProfit)}。`
     } else {
       console.log('[DailyBriefing] 正在调用 AI 生成 CFO 简报...')
-      // 🌟 修复点：调用 LLMService.generateContent 替代原有的 llmService.complete
       aiReport = await LLMService.generateContent(
         JSON.stringify([
           { role: 'system', content: systemPrompt },

@@ -9,6 +9,7 @@ const UNIT_COSTS = {
   DEEPSEEK_OUTPUT_1K: 0.002,   // DeepSeek API 极低
 
   // === 🕵️ 数据挖掘与清洗成本 ===
+  APOLLO_SEARCH: 0.02,         // 补充：Apollo.io 模糊搜索调用成本 (约合 $0.003/次)
   PROXYCURL_PROFILE: 0.07,     // Proxycurl (单次领英企业/高管抓取约 $0.01)
   HUNTER_SEARCH: 0.14,         // Hunter.io (找邮箱约 $0.02)
   SNOV_SEARCH: 0.20,           // Snov.io (备用线路找邮箱)
@@ -22,7 +23,7 @@ const UNIT_COSTS = {
 }
 
 interface LogApiCostParams {
-  provider: 'OPENAI' | 'DEEPSEEK' | 'PROXYCURL' | 'HUNTER' | 'SNOV' | 'PROSPEO' | 'ZEROBOUNCE' | 'NAMECHEAP' | 'RESEND' | 'ALIYUN_SMS' | 'OTHER';
+  provider: 'OPENAI' | 'DEEPSEEK' | 'PROXYCURL' | 'APOLLO' | 'HUNTER' | 'SNOV' | 'PROSPEO' | 'ZEROBOUNCE' | 'NAMECHEAP' | 'RESEND' | 'ALIYUN_SMS' | 'OTHER';
   feature: string;
   userId?: string;  // 强烈建议传入！能算出哪个客户给公司赚了多少钱 (LTV)
   usageAmount: number;
@@ -43,6 +44,9 @@ export class CostService {
         break;
       case 'DEEPSEEK':
         costCny = (params.usageAmount / 1000) * (params.usageUnit === 'TOKEN_INPUT' ? UNIT_COSTS.DEEPSEEK_INPUT_1K : UNIT_COSTS.DEEPSEEK_OUTPUT_1K);
+        break;
+      case 'APOLLO':
+        costCny = params.usageAmount * UNIT_COSTS.APOLLO_SEARCH;
         break;
       case 'PROXYCURL':
         costCny = params.usageAmount * UNIT_COSTS.PROXYCURL_PROFILE;

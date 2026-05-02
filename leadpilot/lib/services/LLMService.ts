@@ -1,79 +1,103 @@
 import axios from 'axios';
+import { notificationService } from '@/lib/notification.service';
+
+// 仅保留您已有的两个模型引擎
+type LLMEngine = 'DEEPSEEK' | 'OPENAI';
 
 export class LLMService {
   /**
-   * 生成开发信 (商用级双引擎容灾版)
-   * @param systemPrompt 系统提示词
-   * @param websiteData 客户数据
+   * 核心生成方法：带自动容灾 (Failover) 机制
+   * 逻辑：DeepSeek (主) -> OpenAI (备)
    */
-  static async generateEmail(systemPrompt: string, websiteData: any): Promise<string> {
-    const deepseekKey = process.env.DEEPSEEK_API_KEY;
-    const openaiKey = process.env.OPENAI_API_KEY;
+  static async generateContent(prompt: string, systemPrompt?: string): Promise<string> {
+    const engines: LLMEngine[] = ['DEEPSEEK', 'OPENAI'];
+    let lastError: any = null;
 
-    // 强迫大模型必须读取真实的数据
-    const messages = [
-      { role: 'system', content: systemPrompt || 'You are a professional B2B sales expert. Write highly customized cold emails.' },
-      { 
-        role: 'user', 
-        content: `请根据以下客户真实数据，写一封简短有力的英文B2B开发信。必须在信中提到他们的公司名和职位。\n客户数据: ${JSON.stringify(websiteData)}` 
-      },
-    ];
-
-    try {
-      if (!deepseekKey) throw new Error("缺少 DEEPSEEK_API_KEY");
-      console.log(`🧠 [AI] 正在呼叫 DeepSeek 为 ${websiteData.companyName || '客户'} 写信...`);
-
-      const response = await axios.post(
-        'https://api.deepseek.com/chat/completions',
-        {
-          model: 'deepseek-chat',
-          messages: messages,
-          temperature: 0.7,
-        },
-        {
-          headers: {
-            'Authorization': `Bearer ${deepseekKey}`,
-            'Content-Type': 'application/json',
-          },
-          timeout: 15000,
-        }
-      );
-
-      const emailContent = response.data.choices[0].message.content;
-      console.log(`✅ [AI] DeepSeek 写信成功！`);
-      return emailContent;
-
-    } catch (dsError: any) {
-      console.error(`⚠️ [AI] DeepSeek 引擎报错: ${dsError.response?.data?.error?.message || dsError.message}`);
-      console.log(`🔄 [AI] 启动容灾机制，切换至 OpenAI 备用引擎...`);
-
+    for (const engine of engines) {
       try {
-        if (!openaiKey) throw new Error("缺少 OPENAI_API_KEY 备用通道");
+        const apiKey = this.getApiKey(engine);
+        // 如果环境变量里没配这个 Key，直接跳过看下一个
+        if (!apiKey) continue; 
 
-        const openaiRes = await axios.post(
-          'https://api.openai.com/v1/chat/completions',
-          {
-            model: 'gpt-4o-mini', // 便宜又快的模型
-            messages: messages,
-            temperature: 0.7
-          },
-          {
-            headers: {
-              'Authorization': `Bearer ${openaiKey}`,
-              'Content-Type': 'application/json',
-            },
-            timeout: 20000 
+        console.log(`[LLMService] 🤖 尝试使用引擎: ${engine}...`);
+        
+        // 执行真实请求
+        const result = await this.callEngine(engine, prompt, systemPrompt, apiKey);
+        
+        if (result) {
+          // 如果主引擎 DeepSeek 失败，成功切到了 OpenAI，给老板发报警
+          if (engine === 'OPENAI') {
+            await notificationService.sendUrgentAlert(
+              `AI 引擎已自动切换至备用`,
+              `主引擎 DeepSeek 响应失败，已自动切换至 OpenAI 完成当前任务。请检查 DeepSeek 状态或余额。`
+            );
           }
-        );
-
-        console.log(`✅ [AI] OpenAI 备用引擎写信成功！`);
-        return openaiRes.data.choices[0].message.content;
-
-      } catch (oaError: any) {
-        console.error(`❌ [AI] 双引擎全部瘫痪: ${oaError.response?.data?.error?.message || oaError.message}`);
-        // 绝不妥协：严禁返回假模板！直接抛出报错，让上层 Worker 把任务标记为失败。
-        throw new Error("AI 生成失败，停止投递");
+          return result;
+        }
+      } catch (error: any) {
+        lastError = error;
+        console.error(`[LLMService] ❌ 引擎 ${engine} 报错:`, error.message);
+        // 继续循环，尝试下一个
       }
     }
+
+    // 如果两个都失败了
+    const finalError = lastError?.message || 'DeepSeek 和 OpenAI 均不可用';
+    await notificationService.sendUrgentAlert('🚨 AI 核心全线瘫痪', `尝试了所有配置的 AI 引擎均失败。错误详情: ${finalError}`);
+    throw new Error(`AI 服务暂时不可用: ${finalError}`);
+  }
+
+  /**
+   * 兼容写信逻辑入口
+   */
+  static async generateEmail(systemPrompt: string, websiteData: any): Promise<string> {
+    const userPrompt = `请根据以下客户真实数据，写一封简短有力的英文B2B开发信。必须在信中提到他们的公司名和职位。\n客户数据: ${JSON.stringify(websiteData)}`;
+    return this.generateContent(userPrompt, systemPrompt);
+  }
+
+  /**
+   * 厂商 API 请求适配器
+   */
+  private static async callEngine(engine: LLMEngine, prompt: string, systemPrompt: string | undefined, apiKey: string): Promise<string> {
+    let url = '';
+    let model = '';
+    
+    if (engine === 'DEEPSEEK') {
+      url = 'https://api.deepseek.com/chat/completions';
+      model = 'deepseek-chat';
+    } else {
+      url = 'https://api.openai.com/v1/chat/completions';
+      model = 'gpt-4o-mini';
+    }
+
+    const response = await axios.post(
+      url,
+      {
+        model,
+        messages: [
+          { role: 'system', content: systemPrompt || 'You are a professional B2B sales expert.' },
+          { role: 'user', content: prompt }
+        ],
+        temperature: 0.7,
+      },
+      {
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        timeout: engine === 'DEEPSEEK' ? 15000 : 25000 
+      }
+    );
+
+    return response.data.choices[0]?.message?.content || '';
+  }
+
+  /**
+   * 环境变量读取
+   */
+  private static getApiKey(engine: LLMEngine): string {
+    if (engine === 'DEEPSEEK') return process.env.DEEPSEEK_API_KEY || '';
+    if (engine === 'OPENAI') return process.env.OPENAI_API_KEY || '';
+    return '';
   }
 }

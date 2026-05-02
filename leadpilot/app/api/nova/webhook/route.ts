@@ -21,10 +21,9 @@ export async function POST(req: NextRequest) {
            create: { userId: campaign.userId, leadsBalance: 999 } 
        });
 
-       // 2. 🌟 存入正确的"私有线索库 (UserLead)"表，前端才能展示！
-       // 使用 upsert 防止同一用户重复录入相同邮箱报错
        const userIdStr = String(campaign.userId);
 
+       // 2. 存入正确的"私有线索库 (UserLead)"表
        await prisma.userLead.upsert({
          where: { userId_email: { userId: userIdStr, email: lead.email } },
          update: {
@@ -53,10 +52,12 @@ export async function POST(req: NextRequest) {
        await prisma.lead.create({
          data: { campaignId, email: lead.email, status: 'VERIFIED', websiteData: JSON.stringify(lead) }
        });
-       console.log(`[Webhook] ✅ 线索成功存入 UserLead 目标库: ${lead.email}`);
+       console.log(`[Webhook] ✅ 线索成功存入本地库，等待 AI 接管: ${lead.email}`);
+
     } 
     else if (event === 'TASK_COMPLETED') {
        await prisma.campaign.update({ where: { id: campaignId }, data: { status: 'PROCESSING' } });
+       // 触发 AI 写信队列
        await aiEmailQueue.add('generate-emails', { campaignId }, { removeOnComplete: true });
        console.log(`[Webhook] 🚀 正在推送 AI 写信任务...`);
     }
