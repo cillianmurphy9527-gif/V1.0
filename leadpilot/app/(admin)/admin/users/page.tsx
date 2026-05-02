@@ -2,14 +2,25 @@
 
 import { useState, useEffect } from "react"
 import { motion } from "framer-motion"
-import { Search, MoreVertical, ShieldAlert, Ban, Gift, UserCog, Activity } from "lucide-react"
+import { Search, ShieldAlert, Ban, Gift, UserCog, Activity, Diamond, Loader2 } from "lucide-react"
+import { useToast } from "@/components/ui/use-toast"
+
+// 套餐等级映射，用于降级保护判断
+const PLAN_LEVELS: Record<string, number> = {
+  TRIAL: 0,
+  STARTER: 1,
+  PRO: 2,
+  MAX: 3,
+}
 
 export default function UsersManagementPage() {
+  const { toast } = useToast()
+  
   const [users, setUsers] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
   
-  // 终极复合弹窗状态
+  // 复合弹窗状态
   const [profileModalOpen, setProfileModalOpen] = useState(false)
   const [selectedUser, setSelectedUser] = useState<any>(null)
   const [auditData, setAuditData] = useState<any>(null)
@@ -17,6 +28,10 @@ export default function UsersManagementPage() {
   
   // 快捷操作状态
   const [giftAmount, setGiftAmount] = useState('')
+  
+  // 🌟 新增：套餐修改状态
+  const [selectedTier, setSelectedTier] = useState<string>('')
+  const [isUpdatingTier, setIsUpdatingTier] = useState(false)
 
   useEffect(() => {
     fetchUsers()
@@ -34,13 +49,13 @@ export default function UsersManagementPage() {
     }
   }
 
-  // 🚀 核心：打开详情并同步触发 X光机查账
   const handleOpenProfile = async (user: any) => {
     setSelectedUser(user);
     setProfileModalOpen(true);
     setAuditLoading(true);
     setAuditData(null);
-    setGiftAmount(''); // 重置充值框
+    setGiftAmount('');
+    setSelectedTier('');
 
     try {
       const res = await fetch(`/api/admin/users/${user.id}/stats`);
@@ -55,7 +70,65 @@ export default function UsersManagementPage() {
     }
   }
 
-  // 动作：充值
+  // 🌟 新增：修改套餐函数（含降级保护）
+  const handleUpdateTier = async () => {
+    if (!selectedUser || !selectedTier) return;
+
+    const oldLevel = PLAN_LEVELS[selectedUser.subscriptionTier ?? 'TRIAL'] ?? 0;
+    const newLevel = PLAN_LEVELS[selectedTier] ?? 0;
+
+    // 保留原有的降级保护逻辑
+    if (newLevel < oldLevel) {
+      const confirmed = window.confirm(
+        `⚠️ 降级风险警告\n\n` +
+        `即将把用户套餐从 ${selectedUser.subscriptionTier || '当前版本'} 降级为 ${selectedTier}。\n\n` +
+        `降级后，用户配额将被重置为新套餐额度（不保留未用完的旧额度）。\n\n` +
+        `确定要继续吗？`
+      );
+      if (!confirmed) return;
+    } else {
+      const confirmed = window.confirm(
+        `确认将 ${selectedUser.email} 的套餐修改为 ${selectedTier} 吗？\n\n修改后该用户的配额将自动同步刷新。`
+      );
+      if (!confirmed) return;
+    }
+
+    setIsUpdatingTier(true);
+    try {
+      const res = await fetch('/api/admin/users/upgrade-tier', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: selectedUser.id, tier: selectedTier }),
+      });
+      const data = await res.json();
+
+      if (!res.ok) throw new Error(data.error || '更新失败');
+
+      toast({ title: '套餐已更新', description: '账户配额已同步刷新！' });
+      
+      // 1. 强制重新拉取用户列表，刷新表格状态
+      fetchUsers(); 
+      
+      // 2. 重新拉取该用户的审计数据，并强制更新弹窗内显示
+      setAuditLoading(true);
+      const statsRes = await fetch(`/api/admin/users/${selectedUser.id}/stats`);
+      if (statsRes.ok) {
+        const statsData = await statsRes.json();
+        setAuditData(statsData);
+      }
+      setAuditLoading(false);
+
+      // 3. 局部更新弹窗内套餐标识，并清空套餐选择器
+      setSelectedUser({ ...selectedUser, subscriptionTier: selectedTier });
+      setSelectedTier('');
+
+    } catch (e: any) {
+      toast({ title: '操作失败', description: e.message, variant: 'destructive' });
+    } finally {
+      setIsUpdatingTier(false);
+    }
+  };
+
   const handleGift = async () => {
     if (!selectedUser || !giftAmount) return;
     try {
@@ -64,14 +137,13 @@ export default function UsersManagementPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'gift', amount: Number(giftAmount) })
       });
-      alert(`成功充值 ${giftAmount} 算力！`);
+      toast({ title: `成功充值 ${giftAmount} 算力！` })
       setGiftAmount('');
-      fetchUsers(); // 刷新列表
-      handleOpenProfile(selectedUser); // 刷新弹窗内数据
+      fetchUsers();
+      handleOpenProfile(selectedUser);
     } catch (e) { console.error(e) }
   }
 
-  // 动作：封禁
   const handleBan = async () => {
     if (!selectedUser || !confirm(`确定要彻底封禁 ${selectedUser.email} 并清空算力吗？`)) return;
     try {
@@ -80,11 +152,16 @@ export default function UsersManagementPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'ban' })
       });
-      alert('账号已封禁！');
+      toast({ title: '账号已封禁！' })
       setProfileModalOpen(false);
       fetchUsers();
     } catch (e) { console.error(e) }
   }
+
+  const filteredUsers = users.filter((u: any) => 
+    (u.email || '').toLowerCase().includes(searchQuery.toLowerCase()) || 
+    (u.phone || '').includes(searchQuery)
+  );
 
   return (
     <div className="p-6 text-white min-h-screen bg-[#0B1120]">
@@ -107,7 +184,7 @@ export default function UsersManagementPage() {
               className="w-full pl-10 pr-4 py-2 bg-slate-800/80 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-blue-500"
             />
           </div>
-          <div className="text-sm text-slate-400">共 {users.length} 个用户</div>
+          <div className="text-sm text-slate-400">共 {filteredUsers.length} 个用户</div>
         </div>
 
         <div className="overflow-x-auto">
@@ -125,7 +202,8 @@ export default function UsersManagementPage() {
             </thead>
             <tbody>
               {loading ? <tr><td colSpan={7} className="p-4 text-center text-slate-500">加载中...</td></tr> : 
-               users.map((u: any) => (
+               filteredUsers.length === 0 ? <tr><td colSpan={7} className="p-4 text-center text-slate-500">未找到相关用户</td></tr> :
+               filteredUsers.map((u: any) => (
                 <tr key={u.id} className="border-b border-slate-800 hover:bg-slate-800/30 transition-colors">
                   <td className="p-4 flex items-center">
                     <div className="w-8 h-8 rounded-full bg-blue-500/20 flex items-center justify-center mr-3 text-blue-400 font-bold">
@@ -163,14 +241,13 @@ export default function UsersManagementPage() {
         </div>
       </div>
 
-      {/* 🚀 终极复合弹窗：用户详情 + X光机审计 + 快捷操作 */}
+      {/* 复合弹窗：用户详情 + 审计 + 快捷操作 */}
       {profileModalOpen && selectedUser && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <motion.div 
             initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
             className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-4xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]"
           >
-            {/* 弹窗头部 */}
             <div className="p-5 bg-slate-800/80 border-b border-slate-700 flex justify-between items-center">
               <h2 className="text-xl font-bold text-white flex items-center">
                 <UserCog className="w-5 h-5 mr-2 text-blue-400" /> 用户综合管理面板
@@ -178,7 +255,6 @@ export default function UsersManagementPage() {
               <button onClick={() => setProfileModalOpen(false)} className="text-slate-400 hover:text-white text-2xl">&times;</button>
             </div>
             
-            {/* 弹窗主体 左右分栏 */}
             <div className="flex flex-col md:flex-row flex-1 overflow-y-auto">
               
               {/* 左侧：基础资料与高频操作 */}
@@ -196,6 +272,33 @@ export default function UsersManagementPage() {
 
                 <div className="space-y-4 pt-4 border-t border-slate-700">
                   <h4 className="text-sm font-bold text-slate-300">快捷操作指令</h4>
+                  
+                  {/* 🌟 新增：变更套餐模块 */}
+                  <div className="bg-slate-800/50 p-3 rounded-lg border border-blue-500/30">
+                    <label className="text-xs font-bold text-blue-400 mb-2 block flex items-center gap-1">
+                      <Diamond className="w-3.5 h-3.5" /> 变更客户套餐
+                    </label>
+                    <div className="flex gap-2">
+                      <select 
+                        value={selectedTier}
+                        onChange={(e) => setSelectedTier(e.target.value)}
+                        className="flex-1 bg-slate-900 border border-slate-600 rounded px-2 py-1.5 text-sm text-white focus:outline-none focus:border-blue-500"
+                      >
+                        <option value="">选择新套餐...</option>
+                        <option value="TRIAL">体验版 (TRIAL)</option>
+                        <option value="STARTER">入门版 (STARTER)</option>
+                        <option value="PRO">专业版 (PRO)</option>
+                        <option value="MAX">旗舰版 (MAX)</option>
+                      </select>
+                      <button 
+                        onClick={handleUpdateTier}
+                        disabled={!selectedTier || isUpdatingTier}
+                        className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded text-xs font-bold whitespace-nowrap transition-colors disabled:opacity-50 flex items-center justify-center min-w-[60px]"
+                      >
+                        {isUpdatingTier ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : '执行'}
+                      </button>
+                    </div>
+                  </div>
                   
                   {/* 充值模块 */}
                   <div className="bg-slate-800/50 p-3 rounded-lg border border-slate-700">
@@ -220,7 +323,7 @@ export default function UsersManagementPage() {
                 </div>
               </div>
 
-              {/* 右侧：底层资产查账与 X光机审计 */}
+              {/* 右侧：底层资产审计 */}
               <div className="w-full md:w-2/3 p-6 bg-slate-900">
                 <h3 className="text-lg font-bold text-white mb-4 flex items-center">
                   <Activity className="w-5 h-5 mr-2 text-orange-500" /> 底层资产深度审计
@@ -234,7 +337,6 @@ export default function UsersManagementPage() {
                 ) : auditData ? (
                   <div className="space-y-5">
                     
-                    {/* 智能退款风控提示灯 */}
                     <div className={`p-4 rounded-xl border ${auditData.assets?.domainCount > 0 ? 'bg-red-500/10 border-red-500/50' : 'bg-emerald-500/10 border-emerald-500/50'}`}>
                       <h4 className={`font-bold flex items-center mb-1 ${auditData.assets?.domainCount > 0 ? 'text-red-400' : 'text-emerald-400'}`}>
                         <ShieldAlert className="w-4 h-4 mr-2" /> 智能退款风控结论：
@@ -246,7 +348,6 @@ export default function UsersManagementPage() {
                       </p>
                     </div>
 
-                    {/* 核心资产数据网格 */}
                     <div className="grid grid-cols-2 gap-4">
                       <div className="bg-slate-800/80 border border-slate-700 p-4 rounded-xl">
                         <div className="text-slate-400 text-xs mb-1">当前剩余虚拟算力</div>
