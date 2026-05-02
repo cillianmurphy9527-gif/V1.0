@@ -11,7 +11,7 @@ import { getServerSession } from 'next-auth/next'
 import { authOptions } from '@/lib/auth'
 import { checkFeatureAccess, recordQuotaUsage, FeatureGateError } from '@/lib/feature-gate'
 import { checkAndDeductQuota, QuotaActionType, QuotaErrorCode } from '@/lib/quota'
-import { llmService } from '@/services/LLMService'
+import { LLMService } from '@/services/LLMService'
 
 export async function POST(request: NextRequest) {
   try {
@@ -69,7 +69,7 @@ export async function POST(request: NextRequest) {
 
     // ─── 5. 调用真实 LLM 生成邮件 ──────────────────────────
     const langCode = language.toLowerCase().startsWith('en') ? 'en' : language
-    const draft = await llmService.generateEmail(
+    const draft = await LLMService.generateEmail(
       {
         email: leadData.email || '',
         websiteData: leadData.websiteData,

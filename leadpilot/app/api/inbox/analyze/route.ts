@@ -12,7 +12,7 @@ import { authOptions } from '@/lib/auth'
 import { checkFeatureAccess, recordQuotaUsage, FeatureGateError } from '@/lib/feature-gate'
 import { checkAndDeductQuota, QuotaActionType, QuotaErrorCode } from '@/lib/quota'
 import { prisma } from '@/lib/prisma'
-import { llmService } from '@/services/LLMService'
+import { LLMService }from '@/services/LLMService'
 
 const INTENT_SYSTEM_PROMPT = `你是专业的商务邮件分析助手。分析邮件意图，严格返回如下 JSON，不附加任何说明：
 {

@@ -11,7 +11,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth/next'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { llmService } from '@/services/LLMService'
+import { LLMService } from '@/services/LLMService'
 
 // 试用版套餐列表
 const TRIAL_TIERS = ['TRIAL', 'FREE', 'UNSUBSCRIBED', '未订阅']
@@ -106,7 +106,7 @@ export async function POST(request: NextRequest) {
     `.trim()
 
     // 真实调用 LLM 服务（千人千面逻辑）
-    const draft = await llmService.generateEmail(
+    const draft = await LLMService.generateEmail(
       {
         email: lead.isUnlocked ? lead.email : maskEmail(lead.email),
         websiteData: lead.website || undefined,

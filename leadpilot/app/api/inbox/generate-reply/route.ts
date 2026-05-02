@@ -12,7 +12,7 @@ import { authOptions } from '@/lib/auth'
 import { checkFeatureAccess, recordQuotaUsage, FeatureGateError } from '@/lib/feature-gate'
 import { checkAndDeductQuota, QuotaActionType, QuotaErrorCode } from '@/lib/quota'
 import { prisma } from '@/lib/prisma'
-import { llmService } from '@/services/LLMService'
+import { LLMService }from '@/services/LLMService'
 
 // ─── 允许的预设指令 ──────────────────────────────────────
 export type ReplyType =
