@@ -47,7 +47,8 @@ export async function POST(request: NextRequest) {
     if (!auth.ok) return auth.response
 
     // 从 session 中获取管理员邮箱
-    const adminEmail = auth.session?.user?.email
+    const sessionUser = (auth.session as any)?.user
+    const adminEmail = sessionUser?.email
     if (!adminEmail) {
       return NextResponse.json(
         { error: '无法获取管理员邮箱' },
@@ -55,12 +56,12 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const adminPhone = auth.session?.user?.phone
+    const adminPhone = sessionUser?.phone
 
     console.log('[广播API] 当前管理员:', {
       email: adminEmail,
       phone: adminPhone,
-      sessionId: auth.session?.user?.id,
+      sessionId: sessionUser?.id,
     })
 
     // 【第一步】：通过管理员邮箱从数据库中查找（或创建）真实的管理员记录

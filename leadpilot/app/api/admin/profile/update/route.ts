@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth/next'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { codeStore } from '../send-code/route'
+import { getCodeStore } from '@/lib/verification-store'
+
+const codeStore = getCodeStore()
 
 const DEV_IDS = ['dev-admin-super', 'dev-user-dashboard', 'dev-admin-001']
 
@@ -43,7 +45,6 @@ export async function PATCH(request: NextRequest) {
       if (stored.code !== code) {
         return NextResponse.json({ error: '验证码错误，请检查后重试' }, { status: 400 })
       }
-      // 验证通过，立即删除（一次性）
       codeStore.delete(session.user.id)
     }
 

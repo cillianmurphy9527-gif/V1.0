@@ -7,10 +7,15 @@ export async function POST(_request: NextRequest, ctx: { params: Promise<{ ticke
     const auth = await requireAdminRole()
     if (!auth.ok) return auth.response
 
+    const sessionUser = (auth.session as any)?.user
+    if (!sessionUser?.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
     const { ticketId } = await ctx.params
     await prisma.ticket.update({
       where: { id: ticketId },
-      data: { status: 'RESOLVED', resolvedAt: new Date(), adminId: auth.session?.user?.id },
+      data: { status: 'RESOLVED', resolvedAt: new Date(), adminId: sessionUser.id },
     })
 
     return NextResponse.json({ success: true })
@@ -19,4 +24,3 @@ export async function POST(_request: NextRequest, ctx: { params: Promise<{ ticke
     return NextResponse.json({ error: error?.message || 'Internal server error' }, { status: 500 })
   }
 }
-

@@ -9,64 +9,69 @@ function safeParseMessages(raw: string | null | undefined): TicketMessage[] {
   if (!raw) return []
   try {
     const arr = JSON.parse(raw)
-    if (!Array.isArray(arr)) return []
-    return (arr as any[])
-      .map((m: any): TicketMessage => ({
-        role: m?.role === 'admin' ? 'admin' : 'user',
-        content: String(m?.content ?? ''),
-        createdAt: String(m?.createdAt ?? ''),
-      }))
-      .filter(m => m.content)
+    return Array.isArray(arr) ? arr : []
   } catch {
     return []
   }
 }
 
-export async function GET(_request: NextRequest) {
+export async function GET(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
-    if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
 
-    const userId = session.user.id
     const tickets = await prisma.ticket.findMany({
-      where: { userId },
+      where: { userId: session.user.id },
       orderBy: { updatedAt: 'desc' },
-      take: 50,
+      select: {
+        id: true,
+        title: true,
+        type: true,
+        status: true,
+        priority: true,
+        messages: true,
+        createdAt: true,
+        updatedAt: true,
+      },
     })
 
     return NextResponse.json({
-      tickets: tickets.map(t => ({
-        id: t.id,
-        title: t.title,
-        type: t.type,
-        status: t.status,
-        priority: t.priority,
-        createdAt: t.createdAt.toISOString(),
-        updatedAt: t.updatedAt.toISOString(),
-        messages: safeParseMessages(t.messages),
-      })),
+      tickets: tickets.map(t => {
+        // 安全转换 JsonValue 为 string
+        const rawMessages = typeof t.messages === 'string' ? t.messages : JSON.stringify(t.messages || [])
+        return {
+          id: t.id,
+          title: t.title,
+          type: t.type,
+          status: t.status,
+          priority: t.priority,
+          createdAt: t.createdAt.toISOString(),
+          updatedAt: t.updatedAt.toISOString(),
+          messages: safeParseMessages(rawMessages),
+        }
+      }),
     })
-  } catch (error: any) {
-    console.error('[Tickets GET] Error:', error)
-    return NextResponse.json({ error: error?.message || 'Internal server error' }, { status: 500 })
+  } catch (error) {
+    console.error('[Tickets] Error:', error)
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 })
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
-    if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
 
     const body = await request.json()
-    const title = String(body?.title || '').trim()
-    const type = String(body?.type || 'GENERAL').trim().toUpperCase()
-    const content = String(body?.content || '').trim()
-    const priority = String(body?.priority || 'NORMAL').trim().toUpperCase()
+    const { title, type, message } = body
 
-    if (!title) return NextResponse.json({ error: 'Title is required' }, { status: 400 })
-
-    const now = new Date().toISOString()
-    const messages: TicketMessage[] = content ? [{ role: 'user', content, createdAt: now }] : []
+    if (!title || !type || !message) {
+      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
+    }
 
     const ticket = await prisma.ticket.create({
       data: {
@@ -74,15 +79,31 @@ export async function POST(request: NextRequest) {
         title,
         type,
         status: 'OPEN',
-        priority,
-        messages: JSON.stringify(messages),
+        priority: 'NORMAL',
+        messages: JSON.stringify([{
+          role: 'user',
+          content: message,
+          createdAt: new Date().toISOString()
+        }]),
       },
     })
 
-    return NextResponse.json({ success: true, ticketId: ticket.id })
-  } catch (error: any) {
-    console.error('[Tickets POST] Error:', error)
-    return NextResponse.json({ error: error?.message || 'Internal server error' }, { status: 500 })
+    const rawMessages = typeof ticket.messages === 'string' ? ticket.messages : JSON.stringify(ticket.messages || [])
+    return NextResponse.json({
+      success: true,
+      ticket: {
+        id: ticket.id,
+        title: ticket.title,
+        type: ticket.type,
+        status: ticket.status,
+        priority: ticket.priority,
+        createdAt: ticket.createdAt.toISOString(),
+        updatedAt: ticket.updatedAt.toISOString(),
+        messages: safeParseMessages(rawMessages),
+      },
+    })
+  } catch (error) {
+    console.error('[Tickets] Error:', error)
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 })
   }
 }
-

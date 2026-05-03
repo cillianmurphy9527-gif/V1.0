@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from '@/lib/prisma'
 import { requireAdminRole } from '@/lib/admin-auth'
+import { getToken } from 'next-auth/jwt'
 
 /**
  * 管理后台 - IP 黑名单管理 API
@@ -44,8 +45,8 @@ export async function POST(request: NextRequest) {
   try {
     // 验证管理员权限
     const token = await getToken({ req: request as any, secret: process.env.NEXTAUTH_SECRET })
-    const user = { role: token?.role as string | undefined }
-    if (user?.role !== 'ADMIN' && user?.role !== 'SUPER_ADMIN') {
+    const role = (token as any)?.role as string | undefined
+    if (role !== 'ADMIN' && role !== 'SUPER_ADMIN') {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
@@ -100,8 +101,8 @@ export async function DELETE(request: NextRequest) {
   try {
     // 验证管理员权限
     const token = await getToken({ req: request as any, secret: process.env.NEXTAUTH_SECRET })
-    const user = { role: token?.role as string | undefined }
-    if (user?.role !== 'ADMIN' && user?.role !== 'SUPER_ADMIN') {
+    const role = (token as any)?.role as string | undefined
+    if (role !== 'ADMIN' && role !== 'SUPER_ADMIN') {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 

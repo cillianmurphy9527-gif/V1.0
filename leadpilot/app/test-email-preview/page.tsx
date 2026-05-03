@@ -151,7 +151,7 @@ export default function TestEmailPreviewPage() {
                 style={{ minHeight: 600 }}
               >
                 <iframe
-                  srcdoc={`<!DOCTYPE html>${html.split('<!DOCTYPE html>')[1] ?? html}`}
+                  srcDoc={`<!DOCTYPE html>${html.split('<!DOCTYPE html>')[1] ?? html}`}
                   title="Email Preview"
                   style={{ width: '100%', minHeight: 700, border: 'none', display: 'block' }}
                 />

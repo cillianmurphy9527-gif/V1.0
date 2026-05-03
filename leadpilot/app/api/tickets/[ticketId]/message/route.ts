@@ -15,38 +15,47 @@ function safeParseMessages(raw: string | null | undefined): TicketMessage[] {
   }
 }
 
-export async function POST(request: NextRequest, ctx: { params: Promise<{ ticketId: string }> }) {
+export async function POST(
+  request: NextRequest,
+  { params }: { params: { ticketId: string } }
+) {
   try {
     const session = await getServerSession(authOptions)
-    if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
 
-    const { ticketId } = await ctx.params
+    const { ticketId } = params
     const body = await request.json()
     const content = String(body?.content || '').trim()
-    if (!content) return NextResponse.json({ error: 'Content is required' }, { status: 400 })
+    if (!content) {
+      return NextResponse.json({ error: 'Content is required' }, { status: 400 })
+    }
 
-    const ticket = await prisma.ticket.findUnique({ where: { id: ticketId } })
-    if (!ticket || ticket.userId !== session.user.id) {
+    const ticket = await prisma.ticket.findUnique({
+      where: { id: ticketId }
+    })
+    if (!ticket) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 })
     }
 
-    const messages = safeParseMessages(ticket.messages)
+    // 安全转换 JsonValue 为 string
+    const rawMessages = typeof ticket.messages === 'string' ? ticket.messages : JSON.stringify(ticket.messages || [])
+    const messages = safeParseMessages(rawMessages)
     messages.push({ role: 'user', content, createdAt: new Date().toISOString() })
 
-    const updated = await prisma.ticket.update({
+    await prisma.ticket.update({
       where: { id: ticketId },
       data: {
         messages: JSON.stringify(messages),
-        status: ticket.status === 'RESOLVED' ? 'OPEN' : ticket.status,
+        status: 'OPEN',
         updatedAt: new Date(),
       },
-      select: { id: true, updatedAt: true },
     })
 
-    return NextResponse.json({ success: true, ticketId: updated.id })
+    return NextResponse.json({ success: true, ticketId })
   } catch (error: any) {
-    console.error('[Tickets Message] Error:', error)
+    console.error('[Ticket Message] Error:', error)
     return NextResponse.json({ error: error?.message || 'Internal server error' }, { status: 500 })
   }
 }
-

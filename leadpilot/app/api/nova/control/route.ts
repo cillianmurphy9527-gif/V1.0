@@ -107,7 +107,9 @@ export async function POST(request: NextRequest) {
     }
 
     // ─── 5. 更新日志 ──────────────────────────────────────
-    const logs = JSON.parse(job.logs || '[]')
+    // 安全转换 JsonValue 为 string
+    const rawLogs = typeof job.logs === 'string' ? job.logs : JSON.stringify(job.logs ?? [])
+    const logs = JSON.parse(rawLogs || '[]')
     logs.push(createLog('INFO', logMessage))
     const trimmedLogs = logs.slice(-500)
 

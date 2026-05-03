@@ -46,11 +46,9 @@ export async function GET(request: NextRequest) {
 
 export async function PUT(request: NextRequest) {
   try {
-    const token = await getToken({ req: request as any, secret: process.env.NEXTAUTH_SECRET })
-    const user = { role: token?.role as string | undefined }
-    if (user?.role !== 'ADMIN' && user?.role !== 'SUPER_ADMIN') {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-    }
+    // 鉴权统一改为 requireAdminRole
+    const auth = await requireAdminRole(['SUPER_ADMIN', 'FINANCE'])
+    if (!auth.ok) return auth.response
 
     const body = await request.json()
     const { orderId, refundStatus } = body

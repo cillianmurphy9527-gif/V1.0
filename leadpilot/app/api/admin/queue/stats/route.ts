@@ -26,15 +26,12 @@ export async function GET(request: NextRequest) {
     const action = searchParams.get('action')
 
     if (action === 'health') {
-      // 队列健康检查
       const health = await checkQueueHealth()
       return NextResponse.json({ success: true, data: health })
     }
 
-    // 默认：获取队列统计
     const stats = await getQueueStats()
     
-    // 获取各用户的队列任务数
     const users = await prisma.user.findMany({
       select: { id: true, phone: true, companyName: true, subscriptionTier: true }
     })
@@ -49,7 +46,6 @@ export async function GET(request: NextRequest) {
       }))
     )
 
-    // 只返回有任务的用户
     const activeUsers = userQueueCounts.filter(u => u.queuedJobs > 0)
 
     return NextResponse.json({
@@ -67,24 +63,19 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    // 验证管理员权限
-    const token = await getToken({ req: request as any, secret: process.env.NEXTAUTH_SECRET })
-    const user = { role: token?.role as string | undefined }
-    if (user?.role !== 'ADMIN' && user?.role !== 'SUPER_ADMIN') {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-    }
+    // 验证管理员权限（统一改为 requireAdminRole）
+    const auth = await requireAdminRole()
+    if (!auth.ok) return auth.response
 
     const { action, userId, hours } = await request.json()
 
     if (action === 'pause-user') {
-      // 暂停用户的所有队列任务
       if (!userId) {
         return NextResponse.json({ error: '缺少 userId' }, { status: 400 })
       }
 
       const pausedCount = await pauseUserJobs(userId)
 
-      // 同时暂停用户发信权限
       await prisma.user.update({
         where: { id: userId },
         data: { isSendingSuspended: true }
@@ -99,7 +90,6 @@ export async function POST(request: NextRequest) {
       })
 
     } else if (action === 'cleanup') {
-      // 清理已完成的任务
       const olderThanHours = hours || 24
       const cleaned = await cleanupCompletedJobs(olderThanHours)
 

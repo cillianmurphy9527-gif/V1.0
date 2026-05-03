@@ -36,7 +36,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const job = await prisma.novaJob.findFirst({
       where: {
         id: jobId,
-        userId, // 确保用户只能查看自己的任务
+        userId,
       },
       select: {
         id: true,
@@ -62,7 +62,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       )
     }
 
-    // ─── 3. 解析日志 ───────────────────────────────────────
+    // ─── 3. 解析日志（安全处理 JsonValue）────────────────────
     let logs: Array<{
       timestamp: string
       level: string
@@ -71,7 +71,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     }> = []
 
     try {
-      logs = JSON.parse(job.logs || '[]')
+      const rawLogs = typeof job.logs === 'string' ? job.logs : JSON.stringify(job.logs ?? [])
+      logs = JSON.parse(rawLogs || '[]')
     } catch {
       logs = []
     }
@@ -98,7 +99,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       leadsFound: job.leadsFound,
       leadsSaved: job.leadsSaved,
       errorMessage: job.errorMessage,
-      logs: logs.slice(-20), // 只返回最近 20 条日志
+      logs: logs.slice(-20),
       startedAt: job.startedAt,
       completedAt: job.completedAt,
       createdAt: job.createdAt,

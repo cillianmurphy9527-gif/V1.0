@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useWorkbench } from '@/contexts/WorkbenchContext'
+import type { ActiveConfig } from '@/contexts/WorkbenchContext'
 import { useToast } from '@/components/ui/use-toast'
 import {
   X, Search, Sparkles, Send, Brain, Shield, ShoppingCart,
@@ -121,7 +122,7 @@ function TierSwitch({
 }) {
   const lockedToast = useLockedToast()
   const { userPlan } = useWorkbench()
-  const weight = PLAN_WEIGHT[userPlan as string] || 1
+  const weight = PLAN_WEIGHT[String(userPlan ?? '')] || 1
 
   return (
     <div className="grid grid-cols-3 gap-1.5">
@@ -306,7 +307,7 @@ function NumberInput({
 function TabLeads() {
   const { userPlan, assets } = useWorkbench()
   const { tempConfig, updateTempConfig } = useDrawerConfig()
-  const weight = PLAN_WEIGHT[userPlan as string] || 1
+  const weight = PLAN_WEIGHT[String(userPlan ?? '')] || 1
   const purchasedLeadsPack = (assets.addons_purchased || []).includes(ADDON_LEADS_PACK)
 
   const quotaLimits: Record<number, number> = { 1: 300, 2: 1000, 3: 3000 };
@@ -394,7 +395,7 @@ function TabLeads() {
 function TabAIBrain() {
   const { userPlan, assets } = useWorkbench()
   const { tempConfig, updateTempConfig } = useDrawerConfig()
-  const weight = PLAN_WEIGHT[userPlan as string] || 1
+  const weight = PLAN_WEIGHT[String(userPlan ?? '')] || 1
   const purchased = assets.addons_purchased || []
 
   const tokenLimit = weight >= 3 ? 500000 : weight >= 2 ? 200000 : 50000;
@@ -536,7 +537,7 @@ function TabAIBrain() {
 function TabSender() {
   const { userPlan, assets } = useWorkbench()
   const { tempConfig, updateTempConfig } = useDrawerConfig()
-  const weight = PLAN_WEIGHT[userPlan as string] || 1
+  const weight = PLAN_WEIGHT[String(userPlan ?? '')] || 1
   const lockedToast = useLockedToast()
   const hasDedicatedIP = (assets.addons_purchased || []).includes(ADDON_DEDICATED_IP)
 
@@ -647,7 +648,7 @@ function TabSender() {
 function TabIntent() {
   const { userPlan, assets } = useWorkbench()
   const { tempConfig, updateTempConfig } = useDrawerConfig()
-  const weight = PLAN_WEIGHT[userPlan as string] || 1
+  const weight = PLAN_WEIGHT[String(userPlan ?? '')] || 1
   const lockedToast = useLockedToast()
   const { toast } = useToast()
   const purchased = assets.addons_purchased || []
@@ -667,7 +668,6 @@ function TabIntent() {
         <div className="flex items-center justify-between gap-3">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-1.5 flex-wrap">
-              {/* 🔒 图标：仅在 weight < 2 用户时显示 */}
               {weight < 2 && (
                 <Lock className="w-3 h-3 text-slate-500 flex-shrink-0" />
               )}
@@ -677,7 +677,6 @@ function TabIntent() {
               <span className={`text-[9px] ${weight < 2 ? 'text-slate-600' : 'text-slate-600'} bg-slate-800/60 px-1.5 py-0.5 rounded`}>
                 生效于: 统一收件箱
               </span>
-              {/* [增长版解锁] 蓝色标签：仅在 weight < 2 用户时显示 */}
               {weight < 2 && (
                 <span className="text-[9px] text-purple-400 bg-purple-500/15 border border-purple-500/30 px-1.5 py-0.5 rounded font-medium">
                   增长版解锁
@@ -833,7 +832,7 @@ function TabIntent() {
 
 function TabSystem() {
   const { userPlan } = useWorkbench()
-  const weight = PLAN_WEIGHT[userPlan as string] || 1
+  const weight = PLAN_WEIGHT[String(userPlan ?? '')] || 1
 
   const dataRetention: Record<number, { days: number; label: string; desc: string }> = {
     1:  { days: 7,   label: '7 天',  desc: '试运营版基础保留' },
@@ -953,17 +952,16 @@ function TabSystem() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface AddonItem {
-  key: string        // Store 中的真实商品 ID
+  key: string
   name: string
   icon: React.ReactNode
   description: string
   price: number
-  minWeight: number      // 最低套餐要求
+  minWeight: number
   tag?: string
-  category: 'strategy' | 'premium'  // 永久资产 vs 高级特权
+  category: 'strategy' | 'premium'
 }
 
-// 永久资产（行业策略包）- 对应 TEMPLATE_ASSETS
 const PERMANENT_ADDONS: AddonItem[] = [
   {
     key: 'strategy-followup',
@@ -1033,7 +1031,6 @@ const PERMANENT_ADDONS: AddonItem[] = [
   },
 ]
 
-// 高级特权 - 对应 PREMIUM_SERVICES
 const PRIVILEGE_ADDONS: AddonItem[] = [
   {
     key: 'service-ip',
@@ -1060,16 +1057,12 @@ const PRIVILEGE_ADDONS: AddonItem[] = [
 function TabAddons() {
   const { userPlan, assets } = useWorkbench()
   const { tempConfig, updateTempConfig } = useDrawerConfig()
-  const weight = PLAN_WEIGHT[userPlan as string] || 1
+  const weight = PLAN_WEIGHT[String(userPlan ?? '')] || 1
   const { toast } = useToast()
 
-  // 检查是否已从商城购买（使用 Store 商品 ID）
   const isPurchased = (key: string) => (assets.addons_purchased || []).includes(key)
+  const isActive = (key: string) => (tempConfig as any)[key] === true
 
-  // 检查是否已激活（读取 tempConfig 中的开关状态）
-  const isActive = (key: string) => (tempConfig as Record<string, boolean>)[key] === true
-
-  // 引导用户前往商城购买（严禁在组件内修改购买状态！）
   const handleGoToStore = (item: AddonItem) => {
     toast({
       title: '🛒 请前往商城购买',
@@ -1078,7 +1071,6 @@ function TabAddons() {
     })
   }
 
-  // 切换激活状态（仅对已购买项目有效）
   const handleToggleActive = (item: AddonItem) => {
     if (!isPurchased(item.key)) {
       handleGoToStore(item)
@@ -1100,7 +1092,6 @@ function TabAddons() {
         description="真实 SKU · 激活后全局功能立即解锁"
       />
 
-      {/* 已购清单 */}
       {(assets.addons_purchased || []).filter(k =>
         [...PERMANENT_ADDONS, ...PRIVILEGE_ADDONS].some(a => a.key === k)
       ).length > 0 && (
@@ -1121,7 +1112,6 @@ function TabAddons() {
         </div>
       )}
 
-      {/* 按分类展示 */}
       {categories.map(cat => {
         const items = cat.items
         return (
@@ -1253,15 +1243,13 @@ function VIPFloatingButton() {
         }}
         onClick={handleClick}
       >
-        {/* 脉冲光环 */}
         <span className="absolute inset-0 rounded-2xl animate-ping opacity-30" style={{ background: 'rgba(245,158,11,0.5)' }} />
 
-        {/* 王冠图标 */}
         <div className="relative">
           <Crown className="w-5 h-5" />
           <motion.div
             animate={{ rotate: [0, 10, -10, 0] }}
-            transition={{ duration: 2, repeat: Infinity }}
+            transition={{ duration: 2, repeat: Infinity as any }}
             className="absolute -top-1 -right-1 w-2 h-2 bg-yellow-300 rounded-full"
           />
         </div>
@@ -1271,7 +1259,6 @@ function VIPFloatingButton() {
           <p className="text-[10px] opacity-80">专属顾问在线</p>
         </div>
 
-        {/* 闪光装饰 */}
         <div
           className="absolute top-0 left-0 w-full h-full rounded-2xl opacity-20"
           style={{
@@ -1318,15 +1305,13 @@ const TAB_CONTENT: Record<string, React.ReactNode> = {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function NovaDrawer() {
-  const { drawerOpen, closeDrawer, initialDrawerTab, openDrawerToTab, setInitialDrawerTab, userPlan, activeConfig, updateConfig } = useWorkbench()
+  const { drawerOpen, closeDrawer, initialDrawerTab, openDrawerToTab, setInitialDrawerTab, userPlan, activeConfig, updateConfig } = useWorkbench() as any
   const { toast } = useToast()
   const [activeTab, setActiveTab] = useState('leads')
-  const weight = PLAN_WEIGHT[userPlan as string] || 1
+  const weight = PLAN_WEIGHT[String(userPlan ?? '')] || 1
 
-  // 临时配置状态（仅在抽屉内生效，取消则丢弃）
   const [tempConfig, setTempConfig] = useState<ActiveConfig>(activeConfig)
 
-  // 同步全局状态到临时状态（抽屉打开时）
   useEffect(() => {
     if (drawerOpen) {
       setTempConfig(activeConfig)
@@ -1336,7 +1321,6 @@ export function NovaDrawer() {
 
   const effectiveTab = initialDrawerTab || activeTab
 
-  // 更新临时配置
   const updateTempConfig = useCallback((updates: Partial<ActiveConfig>) => {
     setTempConfig(prev => ({ ...prev, ...updates }))
   }, [])
@@ -1346,7 +1330,6 @@ export function NovaDrawer() {
     setInitialDrawerTab?.(null)
   }
 
-  // 应用配置：深度合并临时状态到全局状态
   const handleApplyConfig = () => {
     updateConfig(tempConfig)
     toast({
@@ -1356,26 +1339,22 @@ export function NovaDrawer() {
     closeDrawer()
   }
 
-  // 取消：直接丢弃临时修改
   const handleCancel = () => {
     setTempConfig(activeConfig)
     closeDrawer()
   }
 
-  // 点击遮罩关闭也视为取消
   const handleBackdropClose = () => {
     handleCancel()
   }
 
   return (
     <>
-      {/* VIP 浮窗（独立渲染，不受抽屉状态影响） */}
       <VIPFloatingButton />
 
       <AnimatePresence>
         {drawerOpen && (
           <>
-            {/* Glassmorphism Backdrop */}
             <motion.div
               key="backdrop"
               initial={{ opacity: 0 }}
@@ -1386,7 +1365,6 @@ export function NovaDrawer() {
               onClick={handleBackdropClose}
             />
 
-            {/* Drawer Panel */}
             <motion.div
               key="drawer"
               initial={{ x: '100%' }}
@@ -1403,13 +1381,11 @@ export function NovaDrawer() {
                   boxShadow: '-20px 0 60px rgba(0,0,0,0.6), inset 1px 0 0 rgba(255,255,255,0.05)',
                 }}
               >
-                {/* Top gradient bar */}
                 <div
                   className="h-0.5 w-full flex-shrink-0"
                   style={{ background: 'linear-gradient(90deg, transparent, rgba(139,92,246,0.8), rgba(59,130,246,0.8), transparent)' }}
                 />
 
-                {/* Header */}
                 <div className="flex items-center justify-between px-5 py-4 border-b border-white/5 flex-shrink-0">
                   <div>
                     <div className="flex items-center gap-2">
@@ -1429,7 +1405,6 @@ export function NovaDrawer() {
                   </button>
                 </div>
 
-                {/* Tab Bar */}
                 <div className="px-4 py-2.5 border-b border-white/5 flex-shrink-0" style={{ background: 'rgba(0,0,0,0.2)' }}>
                   <div className="grid grid-cols-3 gap-1">
                     {TABS.map(tab => {
@@ -1453,7 +1428,6 @@ export function NovaDrawer() {
                   </div>
                 </div>
 
-                {/* Content */}
                 <div className="flex-1 overflow-y-auto px-5 py-4 scrollbar-thin scrollbar-thumb-slate-700 scrollbar-track-transparent">
                 <AnimatePresence mode="wait">
                   <motion.div
@@ -1470,7 +1444,6 @@ export function NovaDrawer() {
                 </AnimatePresence>
                 </div>
 
-                {/* Footer */}
                 <div className="px-5 py-4 border-t border-white/5 flex-shrink-0 space-y-2" style={{ background: 'rgba(0,0,0,0.3)' }}>
                   <div className="flex gap-2">
                     <button

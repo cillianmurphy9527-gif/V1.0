@@ -1,12 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth/next'
 import { authOptions } from '@/lib/auth'
+import { getCodeStore } from '@/lib/verification-store'
 
-/**
- * 内存验证码存储（生产环境建议替换为 Redis）
- * key: userId, value: { code, expiresAt }
- */
-export const codeStore = new Map<string, { code: string; expiresAt: number; purpose: string }>()
+const codeStore = getCodeStore()
 
 /**
  * POST /api/admin/profile/send-code

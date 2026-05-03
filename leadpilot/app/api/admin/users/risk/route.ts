@@ -3,24 +3,11 @@ import { prisma } from '@/lib/prisma'
 import { requireAdminRole } from '@/lib/admin-auth'
 import { unsuspendUserSending } from '@/lib/email-compliance'
 
-/**
- * 管理后台 - 用户风控管理 API
- * 
- * GET /api/admin/users/risk - 查询高风险用户
- * POST /api/admin/users/suspend - 暂停用户发信
- * POST /api/admin/users/unsuspend - 恢复用户发信
- */
-
 export async function GET(request: NextRequest) {
   try {
     const auth = await requireAdminRole()
     if (!auth.ok) return auth.response
-    const user = { role: token?.role as string | undefined }
-    if (user?.role !== 'ADMIN' && user?.role !== 'SUPER_ADMIN') {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-    }
 
-    // 查询高风险用户（退信数 >= 5 或已被暂停）
     const riskUsers = await prisma.user.findMany({
       where: {
         OR: [
@@ -66,14 +53,12 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    // 验证管理员权限
-    const token = await getToken({ req: request as any, secret: process.env.NEXTAUTH_SECRET })
-    if (!token?.id) {
+    const auth = await requireAdminRole()
+    if (!auth.ok) return auth.response
+
+    const sessionUser = (auth.session as any)?.user
+    if (!sessionUser?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
-    const user = { role: token?.role as string | undefined }
-    if (user?.role !== 'ADMIN' && user?.role !== 'SUPER_ADMIN') {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
     const { action, userId, reason } = await request.json()
@@ -83,13 +68,11 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === 'suspend') {
-      // 暂停用户发信
       await prisma.user.update({
         where: { id: userId },
         data: { isSendingSuspended: true }
       })
 
-      // 发送通知
       await prisma.systemNotification.create({
         data: {
           userId,
@@ -100,7 +83,7 @@ export async function POST(request: NextRequest) {
         }
       })
 
-      console.log(`🚨 管理员 ${token.id} 暂停了用户 ${userId} 的发信权限`)
+      console.log(`🚨 管理员 ${sessionUser.id} 暂停了用户 ${userId} 的发信权限`)
 
       return NextResponse.json({
         success: true,
@@ -108,8 +91,7 @@ export async function POST(request: NextRequest) {
       })
 
     } else if (action === 'unsuspend') {
-      // 恢复用户发信
-      await unsuspendUserSending(userId, token.id as string)
+      await unsuspendUserSending(userId, sessionUser.id)
 
       return NextResponse.json({
         success: true,

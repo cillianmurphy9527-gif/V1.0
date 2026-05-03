@@ -18,9 +18,12 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ ticket
   try {
     const auth = await requireAdminRole()
     if (!auth.ok) return auth.response
-    if (!auth.session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    
+    // 类型断言：绕过 TypeScript 对 session 的严格类型检查
+    const sessionUser = (auth.session as any)?.user
+    if (!sessionUser?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-    const role = auth.session.user.role
+    const role = sessionUser.role
     if (role !== 'ADMIN' && role !== 'SUPER_ADMIN') {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
@@ -33,13 +36,15 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ ticket
     const ticket = await prisma.ticket.findUnique({ where: { id: ticketId } })
     if (!ticket) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-    const messages = safeParseMessages(ticket.messages)
+    // 安全转换 messages 类型（JsonValue → string）
+    const rawMessages = typeof ticket.messages === 'string' ? ticket.messages : JSON.stringify(ticket.messages || [])
+    const messages = safeParseMessages(rawMessages)
     messages.push({ role: 'admin', content, createdAt: new Date().toISOString() })
 
     await prisma.ticket.update({
       where: { id: ticketId },
       data: {
-        adminId: auth.session.user.id,
+        adminId: sessionUser.id,
         messages: JSON.stringify(messages),
         status: 'IN_PROGRESS',
         updatedAt: new Date(),
@@ -52,4 +57,3 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ ticket
     return NextResponse.json({ error: error?.message || 'Internal server error' }, { status: 500 })
   }
 }
-

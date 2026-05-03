@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth/next'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { LLMService } from '@/lib/services/LLMService'
+import { LLMService } from '@/services/LLMService'  // 🔧 修正导入路径
 
 export async function POST(request: NextRequest) {
   try {
@@ -15,12 +15,12 @@ export async function POST(request: NextRequest) {
 
     const contextPieces: string[] = []
 
-    // 🌟 核心修复：只查 parseStatus，去掉不存在的 status 字段！
+    // 查询已解析完成的知识库
     try {
       const kb = await prisma.knowledgeBase.findMany({
         where: { 
           userId: session.user.id,
-          parseStatus: 'READY' // ⬅️ 错误就是在这里解决的，就留这一行
+          parseStatus: 'READY'
         },
         orderBy: { updatedAt: 'desc' },
         take: 3,

@@ -165,7 +165,7 @@ const MOCK_NOTIFICATIONS: SystemNotification[] = [
 function InboxPageContent() {
   // ── 全局配置读取（高级配置 Tab 4 联动）──────────────────────────────
   const { activeConfig, userPlan } = useWorkbench()
-  const weight = PLAN_WEIGHT[userPlan as string] || 1
+  const weight = PLAN_WEIGHT[String(userPlan ?? '')] || 1
 
   // Tab 4 配置解构：使用权重判断替代旧数字比较
   const aiIntentTagsEnabled = activeConfig.aiIntentTags && weight >= 2

@@ -13,35 +13,35 @@ export async function GET(request: NextRequest) {
     const user = await prisma.user.findUnique({
       where: { email: session.user.email }
     })
-
     if (!user) {
       return NextResponse.json({ error: '用户不存在' }, { status: 404 })
     }
 
-    const { searchParams } = new URL(request.url)
-    const status = searchParams.get('status')
-
-    // 构建查询条件
-    const where: any = { userId: user.id }
-    if (status) {
-      where.status = status
-    }
-
-    // 获取所有日志
     const logs = await prisma.sendingLog.findMany({
-      where,
-      orderBy: { sentAt: 'desc' }
+      where: { userId: user.id },
+      orderBy: { sentAt: 'desc' },
+      select: {
+        id: true,
+        recipientEmail: true,
+        senderDomain: true,
+        fromEmail: true,
+        subject: true,
+        status: true,
+        sentAt: true,
+        errorMessage: true,
+        messageId: true
+      }
     })
 
-    // 生成 CSV
-    const headers = ['发送时间', '收件人', '发信域名', '发件邮箱', '主题', '状态', '错误信息']
+    const headers = ['ID', '收件人', '发信域名', '发件邮箱', '主题', '状态', '发送时间', '错误信息']
     const rows = logs.map(log => [
-      new Date(log.sentAt).toLocaleString('zh-CN'),
-      log.recipient,
-      log.fromDomain,
+      log.id,
+      log.recipientEmail,
+      log.senderDomain,
       log.fromEmail,
       log.subject,
       log.status,
+      new Date(log.sentAt).toLocaleString('zh-CN'),
       log.errorMessage || ''
     ])
 

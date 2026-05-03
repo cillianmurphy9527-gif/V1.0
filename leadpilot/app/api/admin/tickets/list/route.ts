@@ -33,27 +33,32 @@ export async function GET(_request: NextRequest) {
     })
 
     return NextResponse.json({
-      tickets: tickets.map(t => ({
-        id: t.id,
-        userEmail: t.user?.email || '—',
-        userCompanyName: t.user?.companyName || null,
-        type: (t.type || 'GENERAL').toLowerCase(),
-        subject: t.title,
-        status: t.status === 'IN_PROGRESS' ? 'PENDING' : t.status,
-        priority: t.priority,
-        createdAt: t.createdAt.toLocaleString('zh-CN'),
-        updatedAt: t.updatedAt.toLocaleString('zh-CN'),
-        messages: safeParseMessages(t.messages).map((m, idx) => ({
-          id: `${t.id}-${idx}`,
-          from: m.role === 'admin' ? 'admin' : 'user',
-          content: m.content,
-          createdAt: m.createdAt || '',
-        })),
-      })),
+      tickets: tickets.map(t => {
+        // 安全转换 messages 类型（JsonValue → string）
+        const rawMessages = typeof t.messages === 'string' ? t.messages : JSON.stringify(t.messages || [])
+        const parsedMessages = safeParseMessages(rawMessages)
+
+        return {
+          id: t.id,
+          userEmail: t.user?.email || '—',
+          userCompanyName: t.user?.companyName || null,
+          type: (t.type || 'GENERAL').toLowerCase(),
+          subject: t.title,
+          status: t.status === 'IN_PROGRESS' ? 'PENDING' : t.status,
+          priority: t.priority,
+          createdAt: t.createdAt.toLocaleString('zh-CN'),
+          updatedAt: t.updatedAt.toLocaleString('zh-CN'),
+          messages: parsedMessages.map((m, idx) => ({
+            id: `${t.id}-${idx}`,
+            from: m.role === 'admin' ? 'admin' : 'user',
+            content: m.content,
+            createdAt: m.createdAt || '',
+          })),
+        }
+      }),
     })
   } catch (error: any) {
     console.error('[Admin Tickets List] Error:', error)
     return NextResponse.json({ error: error?.message || 'Internal server error' }, { status: 500 })
   }
 }
-

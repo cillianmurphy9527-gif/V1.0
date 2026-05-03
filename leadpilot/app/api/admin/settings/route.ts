@@ -24,7 +24,11 @@ export async function GET(request: NextRequest) {
     const result: Record<string, any> = {}
     settings.forEach(setting => {
       try {
-        result[setting.key] = JSON.parse(setting.value)
+        if (typeof setting.value === 'string') {
+          result[setting.key] = JSON.parse(setting.value)
+        } else {
+          result[setting.key] = setting.value
+        }
       } catch {
         result[setting.key] = setting.value
       }
@@ -57,6 +61,9 @@ export async function POST(request: NextRequest) {
     // 序列化值
     const serializedValue = typeof value === 'string' ? value : JSON.stringify(value)
 
+    // 安全获取管理员 ID
+    const adminId = (auth as any).session?.user?.id || 'system'
+
     const setting = await prisma.systemSettings.upsert({
       where: { key },
       create: {
@@ -64,13 +71,13 @@ export async function POST(request: NextRequest) {
         value: serializedValue,
         category: category || 'general',
         description,
-        updatedBy: token.id as string,
+        updatedBy: adminId,
       },
       update: {
         value: serializedValue,
         category: category || undefined,
         description: description || undefined,
-        updatedBy: token.id as string,
+        updatedBy: adminId,
       },
     })
 
@@ -91,19 +98,8 @@ export async function POST(request: NextRequest) {
  */
 export async function DELETE(request: NextRequest) {
   try {
-    const token = await getToken({
-      req: request as any,
-      secret: process.env.NEXTAUTH_SECRET,
-    })
-    if (!token?.id) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
-    // 验证管理员身份
-    const user = { role: token?.role as string | undefined }
-    if (user?.role !== 'ADMIN' && user?.role !== 'SUPER_ADMIN') {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-    }
+    const auth = await requireAdminRole()
+    if (!auth.ok) return auth.response
 
     const { searchParams } = new URL(request.url)
     const key = searchParams.get('key')

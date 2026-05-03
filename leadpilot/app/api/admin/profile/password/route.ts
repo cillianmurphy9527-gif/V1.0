@@ -3,7 +3,9 @@ import { getServerSession } from 'next-auth/next'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import bcrypt from 'bcryptjs'
-import { codeStore } from '../send-code/route'
+import { getCodeStore } from '@/lib/verification-store'
+
+const codeStore = getCodeStore()
 
 const DEV_ACCOUNTS: Record<string, string> = {
   'dev-admin-super': 'jiaofuquan123@',

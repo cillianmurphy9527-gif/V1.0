@@ -32,31 +32,17 @@ export async function GET(request: NextRequest) {
 
     const skip = (page - 1) * limit
 
-    // 构建查询条件
     const where: any = { userId: user.id }
-    
-    if (status) {
-      where.status = status
-    }
-    
-    if (campaignId) {
-      where.campaignId = campaignId
-    }
-    
+    if (status) { where.status = status }
+    if (campaignId) { where.campaignId = campaignId }
     if (startDate || endDate) {
       where.sentAt = {}
-      if (startDate) {
-        where.sentAt.gte = new Date(startDate)
-      }
-      if (endDate) {
-        where.sentAt.lte = new Date(endDate)
-      }
+      if (startDate) { where.sentAt.gte = new Date(startDate) }
+      if (endDate) { where.sentAt.lte = new Date(endDate) }
     }
 
-    // 获取总数
     const total = await prisma.sendingLog.count({ where })
 
-    // 获取分页数据
     const logs = await prisma.sendingLog.findMany({
       where,
       orderBy: { sentAt: 'desc' },
@@ -64,8 +50,8 @@ export async function GET(request: NextRequest) {
       take: limit,
       select: {
         id: true,
-        recipient: true,
-        fromDomain: true,
+        recipientEmail: true,
+        senderDomain: true,
         fromEmail: true,
         subject: true,
         status: true,
@@ -78,7 +64,6 @@ export async function GET(request: NextRequest) {
       }
     })
 
-    // 统计数据
     const stats = {
       total,
       sent: await prisma.sendingLog.count({ where: { ...where, status: 'SENT' } }),

@@ -138,9 +138,9 @@ export async function logEmailSending(data: {
     await prisma.sendingLog.create({
       data: {
         userId: data.userId,
-        campaignId: data.campaignId,
-        recipient: data.recipient,
-        fromDomain: data.fromDomain,
+        taskId: data.campaignId,
+        recipientEmail: data.recipient,
+        senderDomain: data.fromDomain,
         fromEmail: data.fromEmail,
         subject: data.subject,
         status: data.status,
