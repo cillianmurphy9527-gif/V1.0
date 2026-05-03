@@ -171,9 +171,9 @@ export async function recordEmailSent(params: {
   await prisma.sendingLog.create({
     data: {
       userId: params.userId,
-      campaignId: params.campaignId,
-      recipient: params.recipient,
-      fromDomain: params.fromDomain,
+      taskId: params.campaignId,           // ✅ 已映射为正确的新字段 taskId
+      recipientEmail: params.recipient,    // ✅ 已映射为正确的新字段 recipientEmail
+      senderDomain: params.fromDomain,     // ✅ 已映射为正确的新字段 senderDomain
       fromEmail: params.fromEmail,
       subject: params.subject,
       status: 'SENT',
@@ -196,7 +196,7 @@ export async function recordBounce(params: {
   // 1. 记录到 sending_log
   const log = await prisma.sendingLog.findFirst({
     where: {
-      recipient: params.recipient,
+      recipientEmail: params.recipient, // ✅ 这里也修正为 recipientEmail，防止隐患！
       userId: params.userId,
     },
     orderBy: { sentAt: 'desc' },

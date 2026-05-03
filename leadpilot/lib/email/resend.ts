@@ -82,9 +82,9 @@ export async function sendEmailViaResend(params: {
     await prisma.sendingLog.create({
       data: {
         userId,
-        campaignId,
-        recipient: to,
-        fromDomain: (fromEmail || RESEND_CONFIG.fromEmail).split('@')[1],
+        taskId: campaignId,           
+        recipientEmail: to,           
+        senderDomain: (fromEmail || RESEND_CONFIG.fromEmail).split('@')[1],
         fromEmail: fromEmail || RESEND_CONFIG.fromEmail,
         subject,
         status: 'SENT',

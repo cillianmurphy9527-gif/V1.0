@@ -115,7 +115,7 @@ export async function appendJobLog(jobId: string, log: NovaJobLog): Promise<void
   if (!job) return
 
   try {
-    const logs: NovaJobLog[] = JSON.parse(job.logs || '[]')
+    const logs: NovaJobLog[] = (typeof job.logs === 'string' ? JSON.parse(job.logs) : (job.logs as any)) || []
     logs.push(log)
     
     // 保留最近 500 条日志

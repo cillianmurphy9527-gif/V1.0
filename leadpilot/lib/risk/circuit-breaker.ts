@@ -217,9 +217,9 @@ export async function triggerCircuitBreak(
         where: { id: jobId },
         data: {
           logs: JSON.stringify([
-            ...JSON.parse(
-              (await prisma.novaJob.findUnique({ where: { id: jobId }, select: { logs: true } }))?.logs || '[]'
-            ),
+            ...(Array.isArray((await prisma.novaJob.findUnique({ where: { id: jobId }, select: { logs: true } }))?.logs) 
+                 ? (await prisma.novaJob.findUnique({ where: { id: jobId }, select: { logs: true } }))?.logs as any[] 
+                 : []),
             createLog(
               'WARN',
               '⚠️ 触发系统成本风控保护！任务已暂停，等待人工审核。',

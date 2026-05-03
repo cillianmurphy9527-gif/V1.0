@@ -181,7 +181,7 @@ export async function processKnowledgeBase(
             content,
             chunkIndex:  index,
             tokenCount:  Math.ceil(content.length / 2.5), // 粗估中文 token 数
-            embedding:   embeddings[index] ? JSON.stringify(embeddings[index]) : null,
+            embedding:   embeddings[index] ? (embeddings[index] as any) : undefined, // 👈 修复后
             createdAt:   now,
           },
         })

@@ -51,7 +51,7 @@ export class LLMService {
         try {
           CostService.logCost({
             provider: 'OPENAI', feature: 'LLM_GENERATION', userId: undefined,
-            usageAmount: openaiRes.data.usage?.total_tokens || 0, usageUnit: 'TOKEN'
+            usageAmount: openaiRes.data.usage?.total_tokens || 0, usageUnit: 'TOKEN' as any
           }).catch(() => {});
         } catch (e) {}
 
@@ -109,7 +109,7 @@ ${context}`;
     try {
       CostService.logCost({
         provider: 'OPENAI', feature: 'LLM_GENERATION', userId: userId,
-        usageAmount: res.data.usage?.total_tokens || 0, usageUnit: 'TOKEN'
+        usageAmount: res.data.usage?.total_tokens || 0, usageUnit: 'TOKEN' as any
       }).catch(() => {});
     } catch (e) {}
     return res.data.choices[0].message.content;
